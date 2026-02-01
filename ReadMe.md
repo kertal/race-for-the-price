@@ -9,12 +9,10 @@ No judges, no bias — just cold, hard milliseconds on the clock.
 ## The Starting Grid
 
 ```bash
-# Install dependencies (including Playwright)
-npm install
-
-# Install the Chromium browser engine
-npx playwright install chromium
+npm install && npx playwright install chromium
 ```
+
+New to Node.js or need help with your platform? See the full **[Installation Guide](INSTALLATION.md)** for step-by-step instructions on macOS, Linux, and Windows.
 
 ## 🏁 Race Day: Lauda vs Hunt
 
@@ -153,35 +151,10 @@ The terminal delivers the verdict in style:
 
 ## Prerequisites
 
-- **Node.js** 18+
-- **FFmpeg** (optional — for side-by-side video replays and GIF generation)
+- **Node.js** 18+ (required)
+- **FFmpeg** (optional — for side-by-side video replays and GIF export)
 
-### Installing FFmpeg
-
-**macOS** (Homebrew):
-```bash
-brew install ffmpeg
-```
-
-**Ubuntu / Debian**:
-```bash
-sudo apt update && sudo apt install ffmpeg
-```
-
-**Windows** (Chocolatey):
-```bash
-choco install ffmpeg
-```
-
-**Windows** (winget):
-```bash
-winget install FFmpeg.FFmpeg
-```
-
-Verify the installation:
-```bash
-ffmpeg -version
-```
+See the **[Installation Guide](INSTALLATION.md)** for detailed setup instructions on every platform.
 
 ## Project Structure
 
