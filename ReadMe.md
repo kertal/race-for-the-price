@@ -75,6 +75,73 @@ page.raceRecordingEnd();
 
 If you skip `raceRecordingStart`/`End`, the video automatically wraps your first `raceStart` to last `raceEnd`.
 
+## Use Cases: What You Can Race
+
+### A/B testing different versions of your app
+
+Ship a performance regression? Find out before your users do. Point two racers at the same workflow — one against your current release, one against the candidate build:
+
+```
+races/checkout-v2-vs-v3/
+  checkout-v2.spec.js    # Production: https://app.example.com
+  checkout-v3.spec.js    # Staging: https://staging.example.com
+```
+
+```js
+// checkout-v3.spec.js
+await page.goto('https://staging.example.com/products');
+await page.raceStart('Add to cart flow');
+await page.click('.add-to-cart');
+await page.waitForSelector('.cart-badge');
+page.raceEnd('Add to cart flow');
+
+await page.raceStart('Checkout render');
+await page.click('.checkout-button');
+await page.waitForSelector('.payment-form');
+page.raceEnd('Checkout render');
+page.raceRecordingEnd();
+```
+
+Run it under realistic conditions with throttling to see how it feels on real devices:
+
+```bash
+node race.js ./races/checkout-v2-vs-v3 --network=fast-3g --cpu=4 --runs=5
+```
+
+### Comparing competing products or frameworks
+
+Which dashboard loads faster — yours or the competition? Which CSS framework renders a complex layout quicker? Set up a head-to-head:
+
+```
+races/react-vs-svelte-todo/
+  react-todo.spec.js      # React TodoMVC
+  svelte-todo.spec.js     # Svelte TodoMVC
+```
+
+### Measuring the impact of a single change
+
+Want to know if lazy-loading images actually helped? Create two racers that hit the same page — one with the feature flag on, one off:
+
+```
+races/lazy-loading-impact/
+  with-lazy.spec.js       # ?feature=lazy-images
+  without-lazy.spec.js    # ?feature=eager-images
+```
+
+### Monitoring third-party script cost
+
+Quantify the performance tax of analytics, chat widgets, or ad scripts by racing a page with and without them.
+
+### Simulating real-world conditions
+
+Combine network throttling and CPU slowdown to approximate mobile users on spotty connections:
+
+```bash
+node race.js ./races/my-race --network=slow-3g --cpu=6 --runs=3
+```
+
+The `--runs` flag takes the median, smoothing out noise and giving you a number you can trust.
+
 ## Race Flags (CLI Options)
 
 ```bash
