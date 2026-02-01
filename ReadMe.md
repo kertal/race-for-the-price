@@ -37,13 +37,13 @@ races/lauda-vs-hunt/
 
 ## 🏀 LeBron vs Curry
 
-The GOAT debate, settled by scrolling. LeBron James — "The King" — against Stephen Curry — "The Chef". Both dribble their way down their Wikipedia pages with a basketball-style scroll pattern: bouncing down and back up, making net progress toward the finish line.
+The GOAT debate, settled by browser performance. LeBron James — "The King" — against Stephen Curry — "The Chef". Both start midway down their Wikipedia pages and dribble — basketball physics style, with gravity acceleration down and deceleration up — three times before racing back to the top.
 
 ```bash
 node race.js ./races/lebron-vs-curry
 ```
 
-LeBron powers through with heavy dribbles (big scrolls, big bounce-backs), while Curry uses quick crossover-style handles (faster tempo, tighter bounces). Who gets to the bottom first?
+The dribbles are perfectly synced. The difference? The scroll back to the top: LeBron uses a smooth ease-in-out, Curry snaps up with a cubic ease-out. Pure browser performance decides the winner.
 
 ## Building Your Own Grand Prix
 
