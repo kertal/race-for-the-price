@@ -49,8 +49,13 @@ races/my-race/
 Each script gets a Playwright `page` object with race timing built in:
 
 ```js
-// Navigate to the starting line
+// Navigate and wait for the page to be ready
 await page.goto('https://example.com', { waitUntil: 'load' });
+await page.waitForSelector('.action-button');
+
+// Start recording early — gives viewers context before the action
+await page.raceRecordingStart();
+await page.waitForTimeout(1500);
 
 // Drop the flag — start the clock
 await page.raceStart('Full Page Load');
@@ -61,6 +66,9 @@ await page.waitForSelector('.result-loaded');
 
 // Checkered flag — stop the clock
 page.raceEnd('Full Page Load');
+
+// Hold the frame so the video doesn't cut abruptly
+await page.waitForTimeout(1500);
 page.raceRecordingEnd();
 ```
 
@@ -90,6 +98,12 @@ races/checkout-v2-vs-v3/
 ```js
 // checkout-v3.spec.js
 await page.goto('https://staging.example.com/products');
+await page.waitForSelector('.product-list');
+
+// Start recording with a brief pause so viewers see the initial state
+await page.raceRecordingStart();
+await page.waitForTimeout(1500);
+
 await page.raceStart('Add to cart flow');
 await page.click('.add-to-cart');
 await page.waitForSelector('.cart-badge');
@@ -99,6 +113,9 @@ await page.raceStart('Checkout render');
 await page.click('.checkout-button');
 await page.waitForSelector('.payment-form');
 page.raceEnd('Checkout render');
+
+// Let the final state linger in the recording
+await page.waitForTimeout(1500);
 page.raceRecordingEnd();
 ```
 
