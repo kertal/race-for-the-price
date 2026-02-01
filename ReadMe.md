@@ -75,6 +75,39 @@ page.raceRecordingEnd();
 
 If you skip `raceRecordingStart`/`End`, the video automatically wraps your first `raceStart` to last `raceEnd`.
 
+### Example Template: Click & Wait
+
+A ready-to-customize template lives in `races/example-template/`. It demonstrates the most common pattern — load a page, click a button, and wait for results:
+
+```js
+// 1. Navigate to the page
+await page.goto('https://example.com', { waitUntil: 'domcontentloaded' });
+
+// 2. Start video recording and the race timer
+await page.raceRecordingStart();
+await page.waitForTimeout(500);
+await page.raceStart('Load, Click & Wait');
+
+// 3. Click a button (change the selector to match your page)
+await page.locator('button#submit').click();
+
+// 4. Wait for the result to appear (change the selector to match your page)
+await page.locator('.results').waitFor({ state: 'visible' });
+
+// 5. Stop the race timer and video recording
+page.raceEnd('Load, Click & Wait');
+await page.waitForTimeout(500);
+await page.raceRecordingEnd();
+```
+
+Copy the folder, rename the spec files, swap in your URLs and selectors, and race:
+
+```bash
+cp -r races/example-template races/my-race
+# edit races/my-race/racer-a.spec.js and racer-b.spec.js
+node race.js ./races/my-race
+```
+
 ## Race Flags (CLI Options)
 
 ```bash
@@ -170,6 +203,7 @@ RaceForThePrize/
 │   ├── summary.js       # Results formatting & markdown reports
 │   └── sidebyside.js    # FFmpeg video composition
 ├── races/
+│   ├── example-template/ # 📝 Customizable starter template
 │   └── lauda-vs-hunt/   # 🏆 Example: the greatest rivalry in racing
 ├── tests/               # Test suite
 └── package.json
