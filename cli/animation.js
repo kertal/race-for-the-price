@@ -62,7 +62,7 @@ export class RaceAnimation {
 
     for (const msg of this.messages) {
       const nameColor = msg.index === 0 ? c.red : c.blue;
-      process.stderr.write(`  ${nameColor}${c.bold}${msg.name}:${c.reset} ${c.dim}"${msg.text}"${c.reset}\x1b[K\n`);
+      process.stderr.write(`  ${nameColor}${c.bold}${msg.name}:${c.reset} ${c.dim}"${msg.text}" (${msg.elapsed}s)${c.reset}\x1b[K\n`);
       this.lines++;
     }
   }
@@ -72,7 +72,8 @@ export class RaceAnimation {
   }
 
   addMessage(index, name, text) {
-    this.messages.push({ index, name, text });
+    const elapsed = ((Date.now() - this.startTime) / 1000).toFixed(1);
+    this.messages.push({ index, name, text, elapsed });
   }
 
   stop() {
