@@ -14,6 +14,7 @@ await page.raceStart('Dribble Race');
 
 // Basketball physics dribble — identical timing for both racers to stay in sync
 for (let i = 0; i < 3; i++) {
+  page.raceMessage(`🏀 Dribble ${i + 1}`);
   const downDist = 800;
   const downSteps = 25;
   for (let s = 0; s < downSteps; s++) {
@@ -37,6 +38,7 @@ for (let i = 0; i < 3; i++) {
   await page.waitForTimeout(140);
 }
 
+page.raceMessage('🏀 Going for the score!');
 // Scroll to top — Curry uses quick snappy steps
 const scrollSteps = 30;
 const totalScroll = await page.evaluate(() => window.scrollY);
@@ -50,5 +52,6 @@ for (let s = 0; s < scrollSteps; s++) {
 await page.evaluate(() => window.scrollTo(0, 0));
 
 page.raceEnd('Dribble Race');
+page.raceMessage('🏀 Splash! Nothing but net.');
 await page.waitForTimeout(1500);
 await page.raceRecordingEnd();
