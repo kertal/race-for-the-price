@@ -2,9 +2,5 @@
   "parallel": true,
   "network": "none",
   "cpuThrottle": 1,
-  "headless": false,
-  "names": {
-    "lauda": "Niki Lauda",
-    "hunt": "James Hunt"
-  }
+  "headless": false
 }

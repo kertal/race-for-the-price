@@ -352,6 +352,7 @@ function sanitizeScript(script) {
  *   await page.raceRecordingStart()   — manually start a video segment (async: syncs)
  *   page.raceRecordingEnd()           — manually end a video segment (sync)
  *   page.raceMessage(text)            — send a message to the CLI terminal (sync)
+ *   page.setRacerName(name)           — set display name shown on medal screen (sync)
  *
  * raceStart/raceEnd are async/sync respectively because starting requires
  * synchronizing both browsers at the starting line (via SyncBarrier), while
@@ -363,8 +364,9 @@ function sanitizeScript(script) {
  * Returns { segments, measurements } for video trimming and result comparison.
  */
 async function runMarkerMode(page, context, config, barriers, isParallel, sharedState, recordingStartTime) {
-  const { id, script: raceScript } = config;
+  const { id, script: raceScript, displayName } = config;
 
+  let racerName = '';  // Can be set by spec via page.setRacerName()
   const segments = [];
   let currentSegmentStart = null;
   const measurements = [];
@@ -425,7 +427,7 @@ async function runMarkerMode(page, context, config, barriers, isParallel, shared
     sharedState.finishOrder.push(id);
     const place = sharedState.finishOrder.length;
     const medal = place === 1 ? '🥇' : '🥈';
-    const nameLabel = displayName || id;
+    const nameLabel = racerName || displayName || id;
     await page.evaluate(({ medal, place, nameLabel }) => {
       const el = document.createElement('div');
       el.id = '__race_medal';
@@ -510,6 +512,7 @@ async function runMarkerMode(page, context, config, barriers, isParallel, shared
     startMeasure(name);
   };
   page.raceEnd = (name = 'default') => endMeasure(name);
+  page.setRacerName = (name) => { racerName = name; };
 
   if (isParallel && barriers) {
     const result = await barriers.ready.wait(`${id} ready`);
