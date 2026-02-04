@@ -80,6 +80,7 @@ ${c.dim}  ───────────────────────�
   node race.js ${c.cyan}<dir>${c.reset} ${c.yellow}--runs${c.reset}=${c.green}3${c.reset}            Run multiple times, report median
   node race.js ${c.cyan}<dir>${c.reset} ${c.yellow}--slowmo${c.reset}=${c.green}2${c.reset}           Slow-motion side-by-side replay (2x, 3x, etc.)
   node race.js ${c.cyan}<dir>${c.reset} ${c.yellow}--profile${c.reset}            Capture Chrome performance traces
+  node race.js ${c.cyan}<dir>${c.reset} ${c.yellow}--no-overlay${c.reset}         Record videos without overlays
 
 ${c.dim}  CLI flags override settings.json values.${c.reset}
 ${c.dim}  Try the example:  node race.js ./races/lauda-vs-hunt${c.reset}
@@ -147,6 +148,7 @@ const runnerConfig = {
   headless: settings.headless || false,
   profile: settings.profile || false,
   slowmo: settings.slowmo || 0,
+  noOverlay: settings.noOverlay || false,
 };
 
 // --- Race execution ---
@@ -162,6 +164,7 @@ function runRace() {
   if (settings.slowmo) flags.push(`slowmo:${settings.slowmo}x`);
   if (settings.profile) flags.push('profile');
   if (settings.headless) flags.push('headless');
+  if (settings.noOverlay) flags.push('no-overlay');
 
   const animation = new RaceAnimation(racerNames, flags.join(' · '));
   animation.start();
