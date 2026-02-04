@@ -47,6 +47,7 @@ export function applyOverrides(settings, boolFlags, kvFlags) {
   if (boolFlags.has('sequential')) s.parallel = false;
   if (boolFlags.has('headless')) s.headless = true;
   if (boolFlags.has('profile')) s.profile = true;
+  if (boolFlags.has('no-overlay')) s.noOverlay = true;
   if (kvFlags.network !== undefined) s.network = kvFlags.network;
   if (kvFlags.cpu !== undefined) s.cpuThrottle = Number(kvFlags.cpu);
   if (kvFlags.format !== undefined) s.format = kvFlags.format;

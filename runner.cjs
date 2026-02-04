@@ -254,52 +254,20 @@ class SyncBarrier {
   }
 }
 
-// --- Click visualizer (injected into browser pages) ---
+// --- Click event tracker (injected into browser pages) ---
 
 /**
- * Injects a click indicator overlay into all pages in the context.
- * Shows a red ripple animation on every mousedown and records click events
- * with timestamps relative to recordingStartTime for later analysis.
+ * Injects a click event tracker into all pages in the context.
+ * Records click events with timestamps relative to recordingStartTime for later analysis.
  */
-async function setupClickVisualizer(context, recordingStartTime) {
+async function setupClickTracker(context, recordingStartTime) {
   await context.addInitScript((startTime) => {
-    if (window.__clickVisualizerInjected) return;
-    window.__clickVisualizerInjected = true;
+    if (window.__clickTrackerInjected) return;
+    window.__clickTrackerInjected = true;
     window.__recordingStartTime = startTime;
     window.__clickEvents = [];
 
-    const style = document.createElement('style');
-    style.textContent = `
-      .playwright-click-indicator {
-        position: fixed; pointer-events: none; z-index: 999999;
-        width: 40px; height: 40px; border-radius: 50%;
-        background: radial-gradient(circle, rgba(255,82,82,0.9) 0%, rgba(255,82,82,0.5) 30%, transparent 60%);
-        transform: translate(-50%, -50%) scale(0);
-        animation: click-ripple 0.5s ease-out forwards;
-      }
-      .playwright-click-indicator::after {
-        content: ''; position: absolute; top: 50%; left: 50%;
-        width: 50px; height: 50px; border-radius: 50%;
-        border: 3px solid rgba(255,82,82,0.7);
-        transform: translate(-50%, -50%) scale(0);
-        animation: click-ring 0.5s ease-out forwards;
-      }
-      @keyframes click-ripple {
-        0% { transform: translate(-50%, -50%) scale(0); opacity: 1; }
-        60% { transform: translate(-50%, -50%) scale(1.2); opacity: 0.7; }
-        100% { transform: translate(-50%, -50%) scale(1.8); opacity: 0; }
-      }
-      @keyframes click-ring {
-        0% { transform: translate(-50%, -50%) scale(0); opacity: 1; }
-        100% { transform: translate(-50%, -50%) scale(1.3); opacity: 0; }
-      }
-    `;
-
     const inject = () => {
-      const target = document.head || document.body;
-      if (!target) { requestAnimationFrame(inject); return; }
-      target.appendChild(style);
-
       document.addEventListener('mousedown', (e) => {
         const ts = (Date.now() - window.__recordingStartTime) / 1000;
         let desc = e.target.tagName.toLowerCase();
@@ -310,13 +278,6 @@ async function setupClickVisualizer(context, recordingStartTime) {
         const text = (e.target.textContent || '').trim().slice(0, 30);
         if (text) desc += ` "${text}${text.length >= 30 ? '...' : ''}"`;
         window.__clickEvents.push({ timestamp: ts, x: e.clientX, y: e.clientY, element: desc });
-
-        const dot = document.createElement('div');
-        dot.className = 'playwright-click-indicator';
-        dot.style.left = e.clientX + 'px';
-        dot.style.top = e.clientY + 'px';
-        document.body.appendChild(dot);
-        setTimeout(() => dot.remove(), 500);
       }, true);
     };
 
@@ -362,7 +323,7 @@ function sanitizeScript(script) {
  *
  * Returns { segments, measurements } for video trimming and result comparison.
  */
-async function runMarkerMode(page, context, config, barriers, isParallel, sharedState, recordingStartTime) {
+async function runMarkerMode(page, context, config, barriers, isParallel, sharedState, recordingStartTime, noOverlay = false) {
   const { id, script: raceScript } = config;
 
   const segments = [];
@@ -393,6 +354,7 @@ async function runMarkerMode(page, context, config, barriers, isParallel, shared
   };
 
   const showRecordingIndicator = async () => {
+    if (noOverlay) return;
     await page.evaluate(() => {
       const el = document.createElement('div');
       el.id = '__race_rec_indicator';
@@ -405,6 +367,7 @@ async function runMarkerMode(page, context, config, barriers, isParallel, shared
   };
 
   const showFinishTime = (duration) => {
+    if (noOverlay) return;
     page.evaluate((t) => {
       const el = document.getElementById('__race_rec_indicator');
       if (!el) return;
@@ -414,6 +377,7 @@ async function runMarkerMode(page, context, config, barriers, isParallel, shared
   };
 
   const hideRecordingIndicator = async () => {
+    if (noOverlay) return;
     await page.evaluate(() => {
       const el = document.getElementById('__race_rec_indicator');
       if (el) el.remove();
@@ -423,6 +387,7 @@ async function runMarkerMode(page, context, config, barriers, isParallel, shared
   const showMedal = async () => {
     if (!sharedState) return;
     sharedState.finishOrder.push(id);
+    if (noOverlay) return;
     const place = sharedState.finishOrder.length;
     const medal = place === 1 ? '🥇' : '🥈';
     await page.evaluate(({ medal, place }) => {
@@ -565,7 +530,7 @@ async function applyThrottling(page, throttle, id) {
  * Launch one browser, run the race script, record video, collect results.
  * Called twice (once per racer) by runParallel or runSequential.
  */
-async function runBrowserRecording(config, barriers, isParallel, sharedState, browserIndex = 0, throttle = null, profile = false, slowmo = 0) {
+async function runBrowserRecording(config, barriers, isParallel, sharedState, browserIndex = 0, throttle = null, profile = false, slowmo = 0, noOverlay = false) {
   const { id, headless } = config;
   const outputDir = path.join(__dirname, 'recordings', id);
   let browser = null;
@@ -601,14 +566,14 @@ async function runBrowserRecording(config, barriers, isParallel, sharedState, br
     page.setDefaultTimeout(90000);
     page.setDefaultNavigationTimeout(90000);
 
-    await setupClickVisualizer(context, recordingStartTime);
+    await setupClickTracker(context, recordingStartTime);
     await applyThrottling(page, throttle, id);
 
     if (profile) {
       await browser.startTracing(page, { screenshots: true, categories: ['devtools.timeline'] });
     }
 
-    const result = await runMarkerMode(page, context, config, barriers, isParallel, sharedState, recordingStartTime);
+    const result = await runMarkerMode(page, context, config, barriers, isParallel, sharedState, recordingStartTime, noOverlay);
     const markerSegments = result?.segments || [];
     const measurements = result?.measurements || [];
 
@@ -698,7 +663,7 @@ async function runBrowserRecording(config, barriers, isParallel, sharedState, br
 
 // --- Execution modes ---
 
-async function runParallel(browser1Config, browser2Config, throttle, profile, slowmo) {
+async function runParallel(browser1Config, browser2Config, throttle, profile, slowmo, noOverlay) {
   const sharedState = { hasError: false, errorMessage: null, finishOrder: [] };
   const barriers = {
     ready: new SyncBarrier(2, sharedState),
@@ -707,8 +672,8 @@ async function runParallel(browser1Config, browser2Config, throttle, profile, sl
   };
 
   const results = await Promise.allSettled([
-    runBrowserRecording(browser1Config, barriers, true, sharedState, 0, throttle, profile, slowmo),
-    runBrowserRecording(browser2Config, barriers, true, sharedState, 1, throttle, profile, slowmo)
+    runBrowserRecording(browser1Config, barriers, true, sharedState, 0, throttle, profile, slowmo, noOverlay),
+    runBrowserRecording(browser2Config, barriers, true, sharedState, 1, throttle, profile, slowmo, noOverlay)
   ]);
 
   return results.map((r, i) => {
@@ -718,10 +683,10 @@ async function runParallel(browser1Config, browser2Config, throttle, profile, sl
   });
 }
 
-async function runSequential(browser1Config, browser2Config, throttle, profile, slowmo) {
+async function runSequential(browser1Config, browser2Config, throttle, profile, slowmo, noOverlay) {
   const sharedState = { hasError: false, errorMessage: null, finishOrder: [] };
-  const r1 = await runBrowserRecording(browser1Config, null, false, sharedState, 0, throttle, profile, slowmo);
-  const r2 = await runBrowserRecording(browser2Config, null, false, sharedState, 1, throttle, profile, slowmo);
+  const r1 = await runBrowserRecording(browser1Config, null, false, sharedState, 0, throttle, profile, slowmo, noOverlay);
+  const r2 = await runBrowserRecording(browser2Config, null, false, sharedState, 1, throttle, profile, slowmo, noOverlay);
   return [r1, r2];
 }
 
@@ -735,7 +700,7 @@ async function main() {
   try { config = JSON.parse(configJson); }
   catch (e) { console.error('Error: Invalid JSON:', e.message); process.exit(1); }
 
-  const { browser1, browser2, executionMode, throttle, headless, profile, slowmo } = config;
+  const { browser1, browser2, executionMode, throttle, headless, profile, slowmo, noOverlay } = config;
   browser1.headless = headless || false;
   browser2.headless = headless || false;
 
@@ -744,8 +709,8 @@ async function main() {
   let results;
   try {
     results = executionMode === 'parallel'
-      ? await runParallel(browser1, browser2, throttle, profile, slowmo)
-      : await runSequential(browser1, browser2, throttle, profile, slowmo);
+      ? await runParallel(browser1, browser2, throttle, profile, slowmo, noOverlay)
+      : await runSequential(browser1, browser2, throttle, profile, slowmo, noOverlay);
   } catch (error) {
     results = [
       { id: browser1.id, videoPath: null, error: error.message },
