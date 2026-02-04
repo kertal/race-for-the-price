@@ -3,5 +3,8 @@
   "network": "none",
   "cpuThrottle": 1,
   "headless": false,
-  "names": ["Niki Lauda", "James Hunt"]
+  "names": {
+    "lauda": "Niki Lauda",
+    "hunt": "James Hunt"
+  }
 }
