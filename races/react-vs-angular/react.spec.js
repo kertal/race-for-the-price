@@ -8,8 +8,8 @@ await page.raceStart('Load Framework');
 
 await page.goto('https://react.dev/', { waitUntil: 'domcontentloaded' });
 
-// Wait for the main content to be visible and interactive
-await page.waitForSelector('a[href="/learn"]', { state: 'visible' });
+// Wait for the main hero content to be visible
+await page.waitForSelector('h1', { state: 'visible' });
 
 page.raceEnd('Load Framework');
 page.raceMessage('Components assembled!');
