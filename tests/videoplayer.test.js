@@ -83,4 +83,118 @@ describe('buildPlayerHtml', () => {
     expect(html).toContain('<!DOCTYPE html>');
     expect(html).toContain('<tbody>');
   });
+
+  it('supports 3 racers', () => {
+    const summary = {
+      racers: ['alpha', 'beta', 'gamma'],
+      comparisons: [
+        { name: 'Load', racers: [{ duration: 1.0 }, { duration: 1.5 }, { duration: 2.0 }], winner: 'alpha', diff: 1.0, diffPercent: 100.0 },
+      ],
+      overallWinner: 'alpha',
+    };
+    const videos = ['alpha/alpha.race.webm', 'beta/beta.race.webm', 'gamma/gamma.race.webm'];
+    const html = buildPlayerHtml(summary, videos);
+    expect(html).toContain('src="alpha/alpha.race.webm"');
+    expect(html).toContain('src="beta/beta.race.webm"');
+    expect(html).toContain('src="gamma/gamma.race.webm"');
+    expect(html).toContain('<th>alpha</th>');
+    expect(html).toContain('<th>beta</th>');
+    expect(html).toContain('<th>gamma</th>');
+    expect(html).toContain('const raceVideos = [v0, v1, v2]');
+  });
+
+  it('supports 4 racers', () => {
+    const summary = {
+      racers: ['a', 'b', 'c', 'd'],
+      comparisons: [],
+      overallWinner: null,
+    };
+    const videos = ['a/a.race.webm', 'b/b.race.webm', 'c/c.race.webm', 'd/d.race.webm'];
+    const html = buildPlayerHtml(summary, videos);
+    expect(html).toContain('id="v0"');
+    expect(html).toContain('id="v1"');
+    expect(html).toContain('id="v2"');
+    expect(html).toContain('id="v3"');
+    expect(html).toContain('const raceVideos = [v0, v1, v2, v3]');
+  });
+
+  it('supports 5 racers with download links', () => {
+    const summary = {
+      racers: ['r1', 'r2', 'r3', 'r4', 'r5'],
+      comparisons: [],
+      overallWinner: 'r1',
+    };
+    const videos = ['r1/r1.webm', 'r2/r2.webm', 'r3/r3.webm', 'r4/r4.webm', 'r5/r5.webm'];
+    const altFiles = ['r1/r1.gif', 'r2/r2.gif', 'r3/r3.gif', 'r4/r4.gif', 'r5/r5.gif'];
+    const html = buildPlayerHtml(summary, videos, 'gif', altFiles);
+    expect(html).toContain('id="v4"');
+    expect(html).toContain('r1 (.gif)');
+    expect(html).toContain('r5 (.gif)');
+    expect(html).toContain('const raceVideos = [v0, v1, v2, v3, v4]');
+  });
+
+  it('assigns correct colors to racer labels', () => {
+    const summary = {
+      racers: ['red', 'blue', 'green'],
+      comparisons: [],
+      overallWinner: null,
+    };
+    const videos = ['r/r.webm', 'b/b.webm', 'g/g.webm'];
+    const html = buildPlayerHtml(summary, videos);
+    expect(html).toContain('style="color: #e74c3c"');
+    expect(html).toContain('style="color: #3498db"');
+    expect(html).toContain('style="color: #27ae60"');
+  });
+
+  it('displays time with milliseconds', () => {
+    const html = buildPlayerHtml(makeSummary(), videoFiles);
+    expect(html).toContain('0:00.000 / 0:00.000');
+    expect(html).toContain('id="timeDisplay"');
+  });
+
+  it('displays frame number', () => {
+    const html = buildPlayerHtml(makeSummary(), videoFiles);
+    expect(html).toContain('Frame: 0');
+    expect(html).toContain('id="frameDisplay"');
+    expect(html).toContain('getFrame');
+  });
+
+  it('shows mode toggle when full videos provided', () => {
+    const fullVideos = ['lauda/lauda.full.webm', 'hunt/hunt.full.webm'];
+    const html = buildPlayerHtml(makeSummary(), videoFiles, null, null, { fullVideoFiles: fullVideos });
+    expect(html).toContain('id="modeRace"');
+    expect(html).toContain('id="modeFull"');
+    expect(html).toContain('class="mode-btn active"');
+    expect(html).toContain('switchToFull');
+  });
+
+  it('shows merged video button when merged video provided', () => {
+    const html = buildPlayerHtml(makeSummary(), videoFiles, null, null, { mergedVideoFile: 'lauda-vs-hunt.webm' });
+    expect(html).toContain('id="modeMerged"');
+    expect(html).toContain('id="mergedVideo"');
+    expect(html).toContain('src="lauda-vs-hunt.webm"');
+    expect(html).toContain('switchToMerged');
+  });
+
+  it('shows all mode buttons when both full and merged provided', () => {
+    const fullVideos = ['lauda/lauda.full.webm', 'hunt/hunt.full.webm'];
+    const options = { fullVideoFiles: fullVideos, mergedVideoFile: 'merged.webm' };
+    const html = buildPlayerHtml(makeSummary(), videoFiles, null, null, options);
+    expect(html).toContain('id="modeRace"');
+    expect(html).toContain('id="modeFull"');
+    expect(html).toContain('id="modeMerged"');
+  });
+
+  it('hides mode toggle when no additional videos', () => {
+    const html = buildPlayerHtml(makeSummary(), videoFiles, null, null);
+    expect(html).not.toContain('id="modeFull"');
+    expect(html).not.toContain('id="modeMerged"');
+  });
+
+  it('includes full video paths in JavaScript', () => {
+    const fullVideos = ['lauda/lauda.full.webm', 'hunt/hunt.full.webm'];
+    const html = buildPlayerHtml(makeSummary(), videoFiles, null, null, { fullVideoFiles: fullVideos });
+    expect(html).toContain("'lauda/lauda.full.webm'");
+    expect(html).toContain("'hunt/hunt.full.webm'");
+  });
 });
