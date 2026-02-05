@@ -292,6 +292,101 @@ async function getClickEvents(page) {
   catch { return []; }
 }
 
+// --- Performance metrics collection via CDP ---
+
+/**
+ * Set up CDP session for capturing network and performance metrics.
+ * Tracks network transfer sizes, request counts, and prepares for Performance API collection.
+ * @param {Page} page - Playwright page
+ * @param {string} id - Browser identifier for logging
+ * @returns {Object} Metrics collector with methods to start/stop collection
+ */
+async function setupMetricsCollection(page, id) {
+  const metrics = {
+    networkTransferSize: 0,
+    networkRequestCount: 0,
+    domContentLoaded: null,
+    domComplete: null,
+    jsHeapUsedSize: null,
+    scriptDuration: null,
+    layoutDuration: null,
+    recalcStyleDuration: null,
+    taskDuration: null
+  };
+
+  let client = null;
+
+  try {
+    client = await page.context().newCDPSession(page);
+    await client.send('Network.enable');
+    await client.send('Performance.enable');
+
+    // Track network transfer sizes
+    client.on('Network.loadingFinished', (params) => {
+      metrics.networkTransferSize += params.encodedDataLength || 0;
+      metrics.networkRequestCount++;
+    });
+
+  } catch (error) {
+    console.error(`[${id}] Warning: metrics collection setup failed: ${error.message}`);
+  }
+
+  return {
+    /**
+     * Collect final metrics at the end of the race.
+     * Should be called after the race script finishes.
+     */
+    async collect() {
+      try {
+        // Get navigation timing from the page
+        const timing = await page.evaluate(() => {
+          const perf = window.performance;
+          if (!perf || !perf.timing) return null;
+          const t = perf.timing;
+          return {
+            domContentLoaded: t.domContentLoadedEventEnd - t.navigationStart,
+            domComplete: t.domComplete - t.navigationStart
+          };
+        });
+
+        if (timing) {
+          metrics.domContentLoaded = timing.domContentLoaded > 0 ? timing.domContentLoaded : null;
+          metrics.domComplete = timing.domComplete > 0 ? timing.domComplete : null;
+        }
+
+        // Get Performance metrics from CDP
+        if (client) {
+          const perfMetrics = await client.send('Performance.getMetrics');
+          const metricsMap = {};
+          for (const m of perfMetrics.metrics) {
+            metricsMap[m.name] = m.value;
+          }
+
+          // Convert seconds to milliseconds for duration metrics
+          metrics.jsHeapUsedSize = metricsMap.JSHeapUsedSize || null;
+          metrics.scriptDuration = metricsMap.ScriptDuration ? metricsMap.ScriptDuration * 1000 : null;
+          metrics.layoutDuration = metricsMap.LayoutDuration ? metricsMap.LayoutDuration * 1000 : null;
+          metrics.recalcStyleDuration = metricsMap.RecalcStyleDuration ? metricsMap.RecalcStyleDuration * 1000 : null;
+          metrics.taskDuration = metricsMap.TaskDuration ? metricsMap.TaskDuration * 1000 : null;
+        }
+      } catch (error) {
+        console.error(`[${id}] Warning: failed to collect metrics: ${error.message}`);
+      }
+
+      return metrics;
+    },
+
+    /**
+     * Detach the CDP session.
+     */
+    async detach() {
+      try {
+        if (client) await client.detach();
+      } catch {}
+    }
+  };
+}
+
 // --- Script execution ---
 
 /** Fix smart quotes, non-breaking spaces, and line endings in user scripts. */
@@ -569,7 +664,10 @@ async function runBrowserRecording(config, barriers, isParallel, sharedState, br
     await setupClickTracker(context, recordingStartTime);
     await applyThrottling(page, throttle, id);
 
+    // Set up metrics collection when profiling is enabled
+    let metricsCollector = null;
     if (profile) {
+      metricsCollector = await setupMetricsCollection(page, id);
       await browser.startTracing(page, { screenshots: true, categories: ['devtools.timeline'] });
     }
 
@@ -578,7 +676,13 @@ async function runBrowserRecording(config, barriers, isParallel, sharedState, br
     const measurements = result?.measurements || [];
 
     let tracePath = null;
+    let profileMetrics = null;
     if (profile) {
+      // Collect performance metrics before stopping tracing
+      if (metricsCollector) {
+        profileMetrics = await metricsCollector.collect();
+        await metricsCollector.detach();
+      }
       const traceBuffer = await browser.stopTracing();
       tracePath = path.join(outputDir, `${id}.trace.json`);
       fs.writeFileSync(tracePath, traceBuffer);
@@ -634,6 +738,7 @@ async function runBrowserRecording(config, barriers, isParallel, sharedState, br
       tracePath: tracePath ? path.join(id, path.basename(tracePath)) : null,
       clickEvents: adjustedClicks,
       measurements,
+      profileMetrics,
       error: null
     };
   } catch (e) {
@@ -657,6 +762,7 @@ async function runBrowserRecording(config, barriers, isParallel, sharedState, br
     tracePath: null,
     clickEvents: [],
     measurements: [],
+    profileMetrics: null,
     error: error ? error.message : null
   };
 }
@@ -731,6 +837,8 @@ async function main() {
     browser2ClickEvents: results[1]?.clickEvents || [],
     browser1Measurements: results[0]?.measurements || [],
     browser2Measurements: results[1]?.measurements || [],
+    browser1ProfileMetrics: results[0]?.profileMetrics || null,
+    browser2ProfileMetrics: results[1]?.profileMetrics || null,
     errors: errors.length > 0 ? errors : undefined
   }));
 

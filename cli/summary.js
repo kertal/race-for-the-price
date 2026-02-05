@@ -5,6 +5,7 @@
 import fs from 'fs';
 import path from 'path';
 import { c } from './colors.js';
+import { buildProfileComparison, printProfileAnalysis, buildProfileMarkdown } from './profile-analysis.js';
 
 export function buildSummary(racerNames, results, settings, resultsDir) {
   const measurements = results.map(r => r.measurements || []);
@@ -50,6 +51,8 @@ export function buildSummary(racerNames, results, settings, resultsDir) {
       [`${racerNames[i]}_full`, r.fullVideoPath || null],
     ])),
     clickCounts: Object.fromEntries(racerNames.map((n, i) => [n, (results[i].clickEvents || []).length])),
+    profileMetrics: results.map(r => r.profileMetrics || null),
+    profileComparison: buildProfileComparison(racerNames, results.map(r => r.profileMetrics || null)),
   };
 }
 
@@ -61,7 +64,7 @@ function printBar(label, duration, maxDuration, color, isWinner, width = 30) {
 }
 
 export function printSummary(summary) {
-  const { racers, comparisons, overallWinner, wins, errors, clickCounts } = summary;
+  const { racers, comparisons, overallWinner, wins, errors, clickCounts, profileComparison } = summary;
   const colors = [c.red, c.blue];
   const w = 54;
 
@@ -113,10 +116,15 @@ export function printSummary(summary) {
     racers.forEach((r, i) => write(`    ${colors[i]}${r}${c.reset}: ${clickCounts[r]}\n`));
     write('\n');
   }
+
+  // Profile analysis — only show if metrics were captured
+  if (profileComparison && profileComparison.comparisons.length > 0) {
+    printProfileAnalysis(profileComparison, racers);
+  }
 }
 
 export function buildMarkdownSummary(summary, sideBySideName) {
-  const { racers, comparisons, overallWinner, wins, errors, videos, clickCounts, settings, timestamp } = summary;
+  const { racers, comparisons, overallWinner, wins, errors, videos, clickCounts, settings, timestamp, profileComparison } = summary;
   const lines = [];
 
   // ASCII art header
@@ -182,6 +190,11 @@ export function buildMarkdownSummary(summary, sideBySideName) {
 
     lines.push(`| Clicks | ${clickCounts[racers[0]]} | ${clickCounts[racers[1]]} | | |`);
     lines.push('');
+  }
+
+  // Profile analysis
+  if (profileComparison && profileComparison.comparisons.length > 0) {
+    lines.push(buildProfileMarkdown(profileComparison, racers));
   }
 
   // Files

@@ -16,6 +16,7 @@ export function moveResults(recordingsBase, racerName, destDir, runnerResult, br
     tracePath: null,
     clickEvents: runnerResult[`${browserKey}ClickEvents`] || [],
     measurements: runnerResult[`${browserKey}Measurements`] || [],
+    profileMetrics: runnerResult[`${browserKey}ProfileMetrics`] || null,
     error: runnerResult.errors?.find(e => e.startsWith(racerName)) || null,
   };
 
@@ -51,6 +52,9 @@ export function moveResults(recordingsBase, racerName, destDir, runnerResult, br
 
     fs.writeFileSync(path.join(destDir, 'clicks.json'), JSON.stringify(data.clickEvents, null, 2));
     fs.writeFileSync(path.join(destDir, 'measurements.json'), JSON.stringify(data.measurements, null, 2));
+    if (data.profileMetrics) {
+      fs.writeFileSync(path.join(destDir, 'profile-metrics.json'), JSON.stringify(data.profileMetrics, null, 2));
+    }
   } catch (e) {
     console.error(`${c.dim}Warning: Could not move ${racerName} results: ${e.message}${c.reset}`);
   }
