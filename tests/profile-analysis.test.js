@@ -2,8 +2,8 @@
  * Tests for the profile analysis module.
  */
 
-import { describe, it, expect } from 'vitest';
-import { buildProfileComparison, PROFILE_METRICS } from '../cli/profile-analysis.js';
+import { describe, it, expect, vi } from 'vitest';
+import { buildProfileComparison, PROFILE_METRICS, printProfileAnalysis, buildProfileMarkdown } from '../cli/profile-analysis.js';
 
 describe('buildProfileComparison', () => {
   it('returns empty comparisons when no metrics provided', () => {
@@ -177,5 +177,120 @@ describe('PROFILE_METRICS', () => {
     expect(format(0.5)).toContain('μs');
     expect(format(50)).toBe('50.0ms');
     expect(format(1500)).toBe('1.50s');
+  });
+});
+
+describe('buildProfileComparison percentage calculations', () => {
+  it('calculates percentage difference correctly', () => {
+    const metrics1 = {
+      total: { networkTransferSize: 1000 },
+      measured: {}
+    };
+    const metrics2 = {
+      total: { networkTransferSize: 1500 },
+      measured: {}
+    };
+    const result = buildProfileComparison(['a', 'b'], [metrics1, metrics2]);
+
+    const comp = result.total.comparisons.find(c => c.key === 'total.networkTransferSize');
+    expect(comp.winner).toBe('a');
+    expect(comp.diff).toBe(500); // 1500 - 1000
+    expect(comp.diffPercent).toBe(50); // 500/1000 * 100
+  });
+
+  it('handles zero values in percentage calculation', () => {
+    const metrics1 = {
+      total: { networkTransferSize: 0 },
+      measured: {}
+    };
+    const metrics2 = {
+      total: { networkTransferSize: 100 },
+      measured: {}
+    };
+    const result = buildProfileComparison(['a', 'b'], [metrics1, metrics2]);
+
+    const comp = result.total.comparisons.find(c => c.key === 'total.networkTransferSize');
+    expect(comp.winner).toBe('a');
+    expect(comp.diffPercent).toBe(0); // Division by zero guard
+  });
+});
+
+describe('printProfileAnalysis', () => {
+  it('does not throw with valid metrics', () => {
+    const metrics = {
+      total: { networkTransferSize: 1000, scriptDuration: 50 },
+      measured: { networkTransferSize: 500, scriptDuration: 25 }
+    };
+    const comparison = buildProfileComparison(['a', 'b'], [metrics, metrics]);
+
+    // Mock stderr to prevent output during test
+    const mockWrite = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+
+    expect(() => printProfileAnalysis(comparison, ['a', 'b'])).not.toThrow();
+
+    mockWrite.mockRestore();
+  });
+
+  it('handles empty comparisons gracefully', () => {
+    const comparison = buildProfileComparison(['a', 'b'], [null, null]);
+
+    const mockWrite = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+
+    expect(() => printProfileAnalysis(comparison, ['a', 'b'])).not.toThrow();
+
+    mockWrite.mockRestore();
+  });
+});
+
+describe('buildProfileMarkdown', () => {
+  it('returns empty string when no metrics', () => {
+    const comparison = buildProfileComparison(['a', 'b'], [null, null]);
+    const markdown = buildProfileMarkdown(comparison, ['a', 'b']);
+
+    expect(markdown).toBe('');
+  });
+
+  it('generates markdown with headers and tables', () => {
+    const metrics1 = {
+      total: { networkTransferSize: 1000, scriptDuration: 100 },
+      measured: { networkTransferSize: 500 }
+    };
+    const metrics2 = {
+      total: { networkTransferSize: 2000, scriptDuration: 200 },
+      measured: { networkTransferSize: 800 }
+    };
+    const comparison = buildProfileComparison(['racer1', 'racer2'], [metrics1, metrics2]);
+    const markdown = buildProfileMarkdown(comparison, ['racer1', 'racer2']);
+
+    // Check for expected sections
+    expect(markdown).toContain('### Performance Profile Analysis');
+    expect(markdown).toContain('Lower values are better');
+    expect(markdown).toContain('During Measurement');
+    expect(markdown).toContain('Total Session');
+
+    // Check for table structure
+    expect(markdown).toContain('| Metric |');
+    expect(markdown).toContain('| racer1 |');
+    expect(markdown).toContain('|---|---|---|---|---|');
+
+    // Check for winner information
+    expect(markdown).toContain('racer1');
+    expect(markdown).toContain('**Score:**');
+  });
+
+  it('includes percentage differences in markdown', () => {
+    const metrics1 = {
+      total: { networkTransferSize: 1000 },
+      measured: {}
+    };
+    const metrics2 = {
+      total: { networkTransferSize: 2000 },
+      measured: {}
+    };
+    const comparison = buildProfileComparison(['a', 'b'], [metrics1, metrics2]);
+    const markdown = buildProfileMarkdown(comparison, ['a', 'b']);
+
+    // Should contain the percentage diff (100%)
+    expect(markdown).toContain('100.0%');
   });
 });
