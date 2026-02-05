@@ -297,22 +297,24 @@ async function getClickEvents(page) {
 /**
  * Set up CDP session for capturing network and performance metrics.
  * Tracks network transfer sizes, request counts, and prepares for Performance API collection.
+ * Supports both total session metrics and measurement-scoped metrics (between raceStart/raceEnd).
  * @param {Page} page - Playwright page
  * @param {string} id - Browser identifier for logging
- * @returns {Object} Metrics collector with methods to start/stop collection
+ * @returns {Object} Metrics collector with methods to snapshot and collect
  */
 async function setupMetricsCollection(page, id) {
-  const metrics = {
-    networkTransferSize: 0,
-    networkRequestCount: 0,
-    domContentLoaded: null,
-    domComplete: null,
-    jsHeapUsedSize: null,
-    scriptDuration: null,
-    layoutDuration: null,
-    recalcStyleDuration: null,
-    taskDuration: null
+  // Running totals for network (accumulated via events)
+  const networkTotals = {
+    transferSize: 0,
+    requestCount: 0
   };
+
+  // Snapshot taken at raceStart for computing deltas
+  let startSnapshot = null;
+
+  // Network activity during measurement period
+  let measuredNetwork = { transferSize: 0, requestCount: 0 };
+  let isMeasuring = false;
 
   let client = null;
 
@@ -323,20 +325,88 @@ async function setupMetricsCollection(page, id) {
 
     // Track network transfer sizes
     client.on('Network.loadingFinished', (params) => {
-      metrics.networkTransferSize += params.encodedDataLength || 0;
-      metrics.networkRequestCount++;
+      const size = params.encodedDataLength || 0;
+      networkTotals.transferSize += size;
+      networkTotals.requestCount++;
+      // Also track during measurement period
+      if (isMeasuring) {
+        measuredNetwork.transferSize += size;
+        measuredNetwork.requestCount++;
+      }
     });
 
   } catch (error) {
     console.error(`[${id}] Warning: metrics collection setup failed: ${error.message}`);
   }
 
+  /**
+   * Get current CDP performance metrics snapshot.
+   */
+  async function getCdpMetrics() {
+    if (!client) return null;
+    try {
+      const perfMetrics = await client.send('Performance.getMetrics');
+      const metricsMap = {};
+      for (const m of perfMetrics.metrics) {
+        metricsMap[m.name] = m.value;
+      }
+      return {
+        jsHeapUsedSize: metricsMap.JSHeapUsedSize || 0,
+        scriptDuration: (metricsMap.ScriptDuration || 0) * 1000,
+        layoutDuration: (metricsMap.LayoutDuration || 0) * 1000,
+        recalcStyleDuration: (metricsMap.RecalcStyleDuration || 0) * 1000,
+        taskDuration: (metricsMap.TaskDuration || 0) * 1000
+      };
+    } catch {
+      return null;
+    }
+  }
+
   return {
     /**
+     * Take a snapshot at measurement start (raceStart).
+     * Call this to begin tracking measurement-scoped metrics.
+     */
+    async startMeasurement() {
+      startSnapshot = await getCdpMetrics();
+      measuredNetwork = { transferSize: 0, requestCount: 0 };
+      isMeasuring = true;
+    },
+
+    /**
+     * End measurement period (raceEnd).
+     */
+    stopMeasurement() {
+      isMeasuring = false;
+    },
+
+    /**
      * Collect final metrics at the end of the race.
-     * Should be called after the race script finishes.
+     * Returns both total session metrics and measurement-scoped metrics.
      */
     async collect() {
+      const result = {
+        total: {
+          networkTransferSize: networkTotals.transferSize,
+          networkRequestCount: networkTotals.requestCount,
+          domContentLoaded: null,
+          domComplete: null,
+          jsHeapUsedSize: null,
+          scriptDuration: null,
+          layoutDuration: null,
+          recalcStyleDuration: null,
+          taskDuration: null
+        },
+        measured: {
+          networkTransferSize: measuredNetwork.transferSize,
+          networkRequestCount: measuredNetwork.requestCount,
+          scriptDuration: null,
+          layoutDuration: null,
+          recalcStyleDuration: null,
+          taskDuration: null
+        }
+      };
+
       try {
         // Get navigation timing from the page
         const timing = await page.evaluate(() => {
@@ -350,30 +420,32 @@ async function setupMetricsCollection(page, id) {
         });
 
         if (timing) {
-          metrics.domContentLoaded = timing.domContentLoaded > 0 ? timing.domContentLoaded : null;
-          metrics.domComplete = timing.domComplete > 0 ? timing.domComplete : null;
+          result.total.domContentLoaded = timing.domContentLoaded > 0 ? timing.domContentLoaded : null;
+          result.total.domComplete = timing.domComplete > 0 ? timing.domComplete : null;
         }
 
-        // Get Performance metrics from CDP
-        if (client) {
-          const perfMetrics = await client.send('Performance.getMetrics');
-          const metricsMap = {};
-          for (const m of perfMetrics.metrics) {
-            metricsMap[m.name] = m.value;
-          }
+        // Get final CDP metrics
+        const endMetrics = await getCdpMetrics();
+        if (endMetrics) {
+          result.total.jsHeapUsedSize = endMetrics.jsHeapUsedSize || null;
+          result.total.scriptDuration = endMetrics.scriptDuration || null;
+          result.total.layoutDuration = endMetrics.layoutDuration || null;
+          result.total.recalcStyleDuration = endMetrics.recalcStyleDuration || null;
+          result.total.taskDuration = endMetrics.taskDuration || null;
 
-          // Convert seconds to milliseconds for duration metrics
-          metrics.jsHeapUsedSize = metricsMap.JSHeapUsedSize || null;
-          metrics.scriptDuration = metricsMap.ScriptDuration ? metricsMap.ScriptDuration * 1000 : null;
-          metrics.layoutDuration = metricsMap.LayoutDuration ? metricsMap.LayoutDuration * 1000 : null;
-          metrics.recalcStyleDuration = metricsMap.RecalcStyleDuration ? metricsMap.RecalcStyleDuration * 1000 : null;
-          metrics.taskDuration = metricsMap.TaskDuration ? metricsMap.TaskDuration * 1000 : null;
+          // Compute deltas for measurement period
+          if (startSnapshot) {
+            result.measured.scriptDuration = Math.max(0, endMetrics.scriptDuration - startSnapshot.scriptDuration);
+            result.measured.layoutDuration = Math.max(0, endMetrics.layoutDuration - startSnapshot.layoutDuration);
+            result.measured.recalcStyleDuration = Math.max(0, endMetrics.recalcStyleDuration - startSnapshot.recalcStyleDuration);
+            result.measured.taskDuration = Math.max(0, endMetrics.taskDuration - startSnapshot.taskDuration);
+          }
         }
       } catch (error) {
         console.error(`[${id}] Warning: failed to collect metrics: ${error.message}`);
       }
 
-      return metrics;
+      return result;
     },
 
     /**
@@ -418,7 +490,7 @@ function sanitizeScript(script) {
  *
  * Returns { segments, measurements } for video trimming and result comparison.
  */
-async function runMarkerMode(page, context, config, barriers, isParallel, sharedState, recordingStartTime, noOverlay = false) {
+async function runMarkerMode(page, context, config, barriers, isParallel, sharedState, recordingStartTime, noOverlay = false, metricsCollector = null) {
   const { id, script: raceScript } = config;
 
   const segments = [];
@@ -559,9 +631,20 @@ async function runMarkerMode(page, context, config, barriers, isParallel, shared
       autoRecordingStarted = true;
       await startRecording();
     }
+    // Start metrics measurement on first raceStart
+    if (metricsCollector && raceStartTime === null) {
+      await metricsCollector.startMeasurement();
+    }
     startMeasure(name);
   };
-  page.raceEnd = (name = 'default') => endMeasure(name);
+  page.raceEnd = (name = 'default') => {
+    const duration = endMeasure(name);
+    // Stop metrics measurement when the last measurement ends
+    if (metricsCollector && Object.keys(activeMeasurements).length === 0) {
+      metricsCollector.stopMeasurement();
+    }
+    return duration;
+  };
 
   if (isParallel && barriers) {
     const result = await barriers.ready.wait(`${id} ready`);
@@ -671,7 +754,7 @@ async function runBrowserRecording(config, barriers, isParallel, sharedState, br
       await browser.startTracing(page, { screenshots: true, categories: ['devtools.timeline'] });
     }
 
-    const result = await runMarkerMode(page, context, config, barriers, isParallel, sharedState, recordingStartTime, noOverlay);
+    const result = await runMarkerMode(page, context, config, barriers, isParallel, sharedState, recordingStartTime, noOverlay, metricsCollector);
     const markerSegments = result?.segments || [];
     const measurements = result?.measurements || [];
 
