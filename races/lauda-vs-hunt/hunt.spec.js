@@ -4,7 +4,7 @@
 
 page.setRacerName('James Hunt');
 
-await page.goto('https://en.wikipedia.org/wiki/James_Hunt', { waitUntil: 'domcontentloaded' });
+await page.goto('https://en.wikipedia.org/wiki/James_Hunt', { waitUntil: 'load' });
 
 await page.raceRecordingStart();
 await page.waitForTimeout(1500);

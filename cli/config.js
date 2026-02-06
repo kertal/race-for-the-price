@@ -31,11 +31,15 @@ export function discoverRacers(raceDir) {
   let racerFiles = allFiles.filter(f => f.endsWith('.spec.js')).sort();
 
   if (racerFiles.length < 2) {
-    racerFiles = allFiles.filter(f => f.endsWith('.js')).sort();
+    const jsFiles = allFiles.filter(f => f.endsWith('.js')).sort();
+    if (jsFiles.length >= 2) {
+      console.error(`Warning: Found ${racerFiles.length} .spec.js files, using .js files instead`);
+      racerFiles = jsFiles;
+    }
   }
 
-  if (racerFiles.length > 2) {
-    racerFiles = racerFiles.slice(0, 2);
+  if (racerFiles.length > 5) {
+    racerFiles = racerFiles.slice(0, 5);
   }
 
   const racerNames = racerFiles.map(f => f.replace(/\.spec\.js$/, '').replace(/\.js$/, ''));
@@ -47,6 +51,7 @@ export function applyOverrides(settings, boolFlags, kvFlags) {
   if (boolFlags.has('sequential')) s.parallel = false;
   if (boolFlags.has('headless')) s.headless = true;
   if (boolFlags.has('profile')) s.profile = true;
+  if (boolFlags.has('no-overlay')) s.noOverlay = true;
   if (kvFlags.network !== undefined) s.network = kvFlags.network;
   if (kvFlags.cpu !== undefined) s.cpuThrottle = Number(kvFlags.cpu);
   if (kvFlags.format !== undefined) s.format = kvFlags.format;
