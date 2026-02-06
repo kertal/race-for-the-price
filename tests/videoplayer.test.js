@@ -247,6 +247,6 @@ describe('buildPlayerHtml', () => {
     expect(html).toContain('htmx');
     expect(html).toContain('react');
     expect(html).toContain('profile-bar-fill');
-    expect(html).toContain('Score:');
+    expect(html).toContain('profile-bar-fill');
   });
 });

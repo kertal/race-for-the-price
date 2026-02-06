@@ -269,7 +269,7 @@ describe('buildProfileMarkdown', () => {
     expect(markdown).toContain('| Metric |');
     expect(markdown).toContain('racer1');
     expect(markdown).toContain('racer2');
-    expect(markdown).toContain('**Score:**');
+    expect(markdown).toContain('racer1');
   });
 
   it('includes percentage differences in markdown', () => {

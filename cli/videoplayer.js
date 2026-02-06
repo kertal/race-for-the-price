@@ -72,13 +72,6 @@ function buildProfileScopeHtml(title, section, racers) {
     }
   }
 
-  // Score line
-  const scoreStr = racers.map((r, i) => {
-    const color = RACER_CSS_COLORS[i % RACER_CSS_COLORS.length];
-    return `<span style="color: ${color}">${r}</span> ${wins[r]}`;
-  }).join(' &middot; ');
-  html += `<div class="profile-score"><strong>Score:</strong> ${scoreStr}</div>`;
-
   if (overallWinner === 'tie') {
     html += `<div class="profile-winner">&#129309; Tie!</div>`;
   } else if (overallWinner) {
@@ -505,11 +498,6 @@ export function buildPlayerHtml(summary, videoFiles, altFormat, altFiles, option
   }
   .profile-medal {
     font-size: 0.85rem;
-  }
-  .profile-score {
-    margin-top: 0.5rem;
-    font-size: 0.85rem;
-    color: #ccc;
   }
   .profile-winner {
     font-size: 0.9rem;

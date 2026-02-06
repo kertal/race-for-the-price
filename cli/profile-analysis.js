@@ -348,12 +348,6 @@ function printProfileSection(title, section, racers, w, write) {
   }
 
   write(`  ${c.dim}${'─'.repeat(w)}${c.reset}\n`);
-  write(`  ${c.bold}Score: ${c.reset}`);
-  const scoreStr = racers.map((r, i) => {
-    const color = RACER_COLORS[i % RACER_COLORS.length];
-    return `${color}${r}${c.reset} ${wins[r]}`;
-  }).join(' · ');
-  write(`${scoreStr}\n`);
 
   if (overallWinner === 'tie') {
     write(`  ${c.yellow}${c.bold}🤝 Tie!${c.reset}\n`);
@@ -426,8 +420,6 @@ function buildScopeMarkdown(title, section, racers) {
     lines.push('');
   }
 
-  const scoreStr = racers.map(r => `${r} ${wins[r]}`).join(' · ');
-  lines.push(`**Score:** ${scoreStr}`);
   if (overallWinner && overallWinner !== 'tie') {
     lines.push(`**Winner:** ${overallWinner}`);
   } else if (overallWinner === 'tie') {
