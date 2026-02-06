@@ -20,7 +20,7 @@ import { spawn } from 'child_process';
 import { fileURLToPath } from 'url';
 import { RaceAnimation, startProgress } from './cli/animation.js';
 import { c } from './cli/colors.js';
-import { parseArgs, discoverRacers, applyOverrides, discoverSetupTeardown } from './cli/config.js';
+import { parseArgs, discoverRacers, applyOverrides, discoverSetupTeardown, discoverRacerSetupTeardown } from './cli/config.js';
 import { buildSummary, printSummary, buildMarkdownSummary, buildMedianSummary, buildMultiRunMarkdown, printRecentRaces } from './cli/summary.js';
 import { createSideBySide } from './cli/sidebyside.js';
 import { moveResults, convertVideos } from './cli/results.js';
@@ -50,8 +50,10 @@ ${c.dim}  ───────────────────────�
        ${c.green}contender-a.spec.js${c.reset}  ${c.dim}# Racer 1 (name = filename without .spec.js)${c.reset}
        ${c.blue}contender-b.spec.js${c.reset}  ${c.dim}# Racer 2${c.reset}
        ${c.dim}settings.json${c.reset}        ${c.dim}# Optional: { parallel, network, cpuThrottle, setup, teardown }${c.reset}
-       ${c.dim}setup.sh${c.reset}             ${c.dim}# Optional: runs before race (or setup.js)${c.reset}
-       ${c.dim}teardown.sh${c.reset}          ${c.dim}# Optional: runs after race (or teardown.js)${c.reset}
+       ${c.dim}setup.sh${c.reset}             ${c.dim}# Optional: global setup before race${c.reset}
+       ${c.dim}teardown.sh${c.reset}          ${c.dim}# Optional: global teardown after race${c.reset}
+       ${c.dim}contender-a.setup.sh${c.reset} ${c.dim}# Optional: per-racer setup${c.reset}
+       ${c.dim}contender-a.teardown.sh${c.reset} ${c.dim}# Optional: per-racer teardown${c.reset}
 
   ${c.bold}2.${c.reset} Each script gets a Playwright ${c.cyan}page${c.reset} with race helpers:
 
@@ -132,6 +134,12 @@ settings = applyOverrides(settings, boolFlags, kvFlags);
 // --- Setup/Teardown discovery ---
 
 const { setup: setupScript, teardown: teardownScript } = discoverSetupTeardown(raceDir, settings);
+
+// Per-racer setup/teardown (e.g., lauda.setup.sh, hunt.teardown.js)
+const racerScripts = racerNames.map(name => ({
+  name,
+  ...discoverRacerSetupTeardown(raceDir, name, settings),
+}));
 
 /**
  * Run a setup or teardown script.
@@ -353,12 +361,24 @@ async function runSingleRace(runDir) {
 // --- Main ---
 
 async function main() {
-  // Run setup script before races
+  // Run global setup script before races
   try {
     await runScript(setupScript, 'Setup');
   } catch (e) {
     console.error(`\n${c.red}${c.bold}Setup failed:${c.reset} ${e.message}\n`);
     process.exit(1);
+  }
+
+  // Run per-racer setup scripts
+  for (const racer of racerScripts) {
+    if (racer.setup) {
+      try {
+        await runScript(racer.setup, `Setup [${racer.name}]`);
+      } catch (e) {
+        console.error(`\n${c.red}${c.bold}Setup for ${racer.name} failed:${c.reset} ${e.message}\n`);
+        process.exit(1);
+      }
+    }
   }
 
   try {
@@ -398,7 +418,18 @@ async function main() {
     console.error(`\n${c.red}${c.bold}Race failed:${c.reset} ${e.message}\n`);
     throw e; // Re-throw to trigger teardown via finally
   } finally {
-    // Run teardown script after races (even on failure)
+    // Run per-racer teardown scripts (even on failure)
+    for (const racer of racerScripts) {
+      if (racer.teardown) {
+        try {
+          await runScript(racer.teardown, `Teardown [${racer.name}]`);
+        } catch (e) {
+          console.error(`\n${c.yellow}Teardown for ${racer.name} failed:${c.reset} ${e.message}`);
+        }
+      }
+    }
+
+    // Run global teardown script after races (even on failure)
     try {
       await runScript(teardownScript, 'Teardown');
     } catch (e) {

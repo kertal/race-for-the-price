@@ -78,3 +78,29 @@ export function discoverSetupTeardown(raceDir, settings = {}) {
 
   return { setup, teardown };
 }
+
+/**
+ * Discover per-racer setup and teardown scripts.
+ * Convention: {racer-name}.setup.sh, {racer-name}.setup.js,
+ *             {racer-name}.teardown.sh, {racer-name}.teardown.js
+ * Can be overridden via settings.json racers.{name}.setup/teardown fields.
+ *
+ * @param {string} raceDir - Path to the race directory
+ * @param {string} racerName - Name of the racer (without .spec.js)
+ * @param {object} settings - Settings object (may contain racers overrides)
+ * @returns {{ setup: string|object|null, teardown: string|object|null }}
+ */
+export function discoverRacerSetupTeardown(raceDir, racerName, settings = {}) {
+  const allFiles = fs.readdirSync(raceDir).filter(f => !f.startsWith('.'));
+
+  // Convention-based discovery (shell scripts preferred over JS)
+  const setupConvention = [`${racerName}.setup.sh`, `${racerName}.setup.js`].find(f => allFiles.includes(f));
+  const teardownConvention = [`${racerName}.teardown.sh`, `${racerName}.teardown.js`].find(f => allFiles.includes(f));
+
+  // Settings override convention (settings.racers.{name}.setup/teardown)
+  const racerSettings = settings.racers?.[racerName] || {};
+  const setup = racerSettings.setup !== undefined ? racerSettings.setup : (setupConvention || null);
+  const teardown = racerSettings.teardown !== undefined ? racerSettings.teardown : (teardownConvention || null);
+
+  return { setup, teardown };
+}
