@@ -85,6 +85,42 @@ describe('RaceAnimation', () => {
     expect(anim.finished[0]).toBe(true);
     expect(anim.finished[1]).toBe(false);
   });
+
+  it('initializes finished array for 3 racers', () => {
+    const anim = new RaceAnimation(['a', 'b', 'c']);
+    expect(anim.finished).toEqual([false, false, false]);
+  });
+
+  it('initializes finished array for 5 racers', () => {
+    const anim = new RaceAnimation(['a', 'b', 'c', 'd', 'e']);
+    expect(anim.finished).toEqual([false, false, false, false, false]);
+  });
+
+  it('racerFinished works for any index', () => {
+    const anim = new RaceAnimation(['a', 'b', 'c', 'd', 'e']);
+    anim.racerFinished(2);
+    anim.racerFinished(4);
+    expect(anim.finished).toEqual([false, false, true, false, true]);
+  });
+
+  it('stop() marks all racers as finished', () => {
+    const anim = new RaceAnimation(['a', 'b', 'c', 'd']);
+    anim.start();
+    anim.stop();
+    expect(anim.finished).toEqual([true, true, true, true]);
+  });
+
+  it('header includes all racer names', () => {
+    const anim = new RaceAnimation(['alpha', 'beta', 'gamma']);
+    anim.start();
+    anim.stop();
+
+    const output = stderrSpy.mock.calls.map(c => c[0]).join('');
+    expect(output).toContain('alpha');
+    expect(output).toContain('beta');
+    expect(output).toContain('gamma');
+    expect(output).toContain('vs');
+  });
 });
 
 describe('startProgress', () => {
@@ -124,10 +160,10 @@ describe('startProgress', () => {
     const p = startProgress('Step 1');
     stderrSpy.mockClear(); // Clear initial write
     p.update('Step 2');
-    
+
     // Wait for at least one interval tick (100ms interval + 50ms buffer)
     await new Promise(resolve => setTimeout(resolve, 150));
-    
+
     const output = stderrSpy.mock.calls.map(c => c[0]).join('');
     expect(output).toContain('Step 2');
     p.done('Finished');
