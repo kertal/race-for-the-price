@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { buildPlayerHtml } from '../cli/videoplayer.js';
+import { buildProfileComparison } from '../cli/profile-analysis.js';
 
 const makeSummary = (overrides = {}) => ({
   racers: ['lauda', 'hunt'],
@@ -27,11 +28,12 @@ describe('buildPlayerHtml', () => {
     expect(html).toContain('src="hunt/hunt.race.webm"');
   });
 
-  it('includes results table with measurement data', () => {
+  it('includes results with measurement data and deltas', () => {
     const html = buildPlayerHtml(makeSummary(), videoFiles);
     expect(html).toContain('1.000s');
     expect(html).toContain('2.000s');
-    expect(html).toContain('100.0%');
+    expect(html).toContain('(+1.000s)');
+    expect(html).toContain('profile-bar-fill');
   });
 
   it('shows winner banner', () => {
@@ -81,7 +83,7 @@ describe('buildPlayerHtml', () => {
   it('handles empty comparisons', () => {
     const html = buildPlayerHtml(makeSummary({ comparisons: [] }), videoFiles);
     expect(html).toContain('<!DOCTYPE html>');
-    expect(html).toContain('<tbody>');
+    expect(html).toContain('Results');
   });
 
   it('supports 3 racers', () => {
@@ -97,9 +99,9 @@ describe('buildPlayerHtml', () => {
     expect(html).toContain('src="alpha/alpha.race.webm"');
     expect(html).toContain('src="beta/beta.race.webm"');
     expect(html).toContain('src="gamma/gamma.race.webm"');
-    expect(html).toContain('<th>alpha</th>');
-    expect(html).toContain('<th>beta</th>');
-    expect(html).toContain('<th>gamma</th>');
+    expect(html).toContain('>alpha<');
+    expect(html).toContain('>beta<');
+    expect(html).toContain('>gamma<');
     expect(html).toContain('const raceVideos = [v0, v1, v2]');
   });
 
@@ -196,5 +198,58 @@ describe('buildPlayerHtml', () => {
     const html = buildPlayerHtml(makeSummary(), videoFiles, null, null, { fullVideoFiles: fullVideos });
     expect(html).toContain("'lauda/lauda.full.webm'");
     expect(html).toContain("'hunt/hunt.full.webm'");
+  });
+
+  it('omits profile section when no profileComparison', () => {
+    const html = buildPlayerHtml(makeSummary(), videoFiles);
+    expect(html).not.toContain('Performance Profile');
+  });
+
+  it('includes profile section when profileComparison provided', () => {
+    const metrics1 = { total: { networkTransferSize: 1000, scriptDuration: 100 }, measured: { networkTransferSize: 500 } };
+    const metrics2 = { total: { networkTransferSize: 2000, scriptDuration: 200 }, measured: { networkTransferSize: 800 } };
+    const profileComparison = buildProfileComparison(['lauda', 'hunt'], [metrics1, metrics2]);
+    const html = buildPlayerHtml(makeSummary({ profileComparison }), videoFiles);
+
+    expect(html).toContain('Performance Profile');
+    expect(html).toContain('Lower values are better');
+    expect(html).toContain('During Measurement');
+    expect(html).toContain('Total Session');
+  });
+
+  it('shows profile racers sorted by value with deltas', () => {
+    const metrics1 = { total: { networkTransferSize: 2000 }, measured: {} };
+    const metrics2 = { total: { networkTransferSize: 1000 }, measured: {} };
+    const profileComparison = buildProfileComparison(['lauda', 'hunt'], [metrics1, metrics2]);
+    const html = buildPlayerHtml(makeSummary({ profileComparison }), videoFiles);
+
+    // Within the profile section (after "Total Session"), hunt (1000) should appear before lauda (2000)
+    const profileStart = html.indexOf('Total Session');
+    const profileSection = html.slice(profileStart);
+    const huntPos = profileSection.indexOf('>hunt<');
+    const laudaPos = profileSection.indexOf('>lauda<');
+    expect(huntPos).toBeLessThan(laudaPos);
+
+    // lauda should show a delta in the profile section
+    expect(profileSection).toContain('(+');
+  });
+
+  it('shows profile with 3+ racers', () => {
+    const data = [
+      { total: { networkTransferSize: 3000 }, measured: {} },
+      { total: { networkTransferSize: 1000 }, measured: {} },
+      { total: { networkTransferSize: 2000 }, measured: {} },
+    ];
+    const racers = ['angular', 'htmx', 'react'];
+    const profileComparison = buildProfileComparison(racers, data);
+    const summary = { racers, comparisons: [], overallWinner: null, profileComparison };
+    const videos = ['a/a.webm', 'h/h.webm', 'r/r.webm'];
+    const html = buildPlayerHtml(summary, videos);
+
+    expect(html).toContain('angular');
+    expect(html).toContain('htmx');
+    expect(html).toContain('react');
+    expect(html).toContain('profile-bar-fill');
+    expect(html).toContain('profile-bar-fill');
   });
 });

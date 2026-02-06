@@ -5,6 +5,7 @@
 import fs from 'fs';
 import path from 'path';
 import { c, RACER_COLORS } from './colors.js';
+import { buildProfileComparison, printProfileAnalysis, buildProfileMarkdown } from './profile-analysis.js';
 
 // --- Helper functions to eliminate duplication ---
 
@@ -100,6 +101,8 @@ export function buildSummary(racerNames, results, settings, resultsDir) {
       [`${racerNames[i]}_full`, r.fullVideoPath || null],
     ])),
     clickCounts: Object.fromEntries(racerNames.map((n, i) => [n, (results[i].clickEvents || []).length])),
+    profileMetrics: results.map(r => r.profileMetrics || null),
+    profileComparison: buildProfileComparison(racerNames, results.map(r => r.profileMetrics || null)),
   };
 }
 
@@ -111,7 +114,7 @@ function printBar(label, duration, maxDuration, color, isWinner, width = 30) {
 }
 
 export function printSummary(summary) {
-  const { racers, comparisons, overallWinner, wins, errors, clickCounts } = summary;
+  const { racers, comparisons, overallWinner, wins, errors, clickCounts, profileComparison } = summary;
   const w = 54;
 
   const write = (s) => process.stderr.write(s);
@@ -130,20 +133,30 @@ export function printSummary(summary) {
   } else {
     for (const comp of comparisons) {
       const maxDur = Math.max(...comp.racers.map(r => r?.duration || 0));
+
+      // Sort racers by duration ascending (best/fastest first), nulls last
+      const sorted = racers
+        .map((name, i) => ({ name, index: i, racer: comp.racers[i] }))
+        .sort((a, b) => {
+          if (!a.racer) return 1;
+          if (!b.racer) return -1;
+          return a.racer.duration - b.racer.duration;
+        });
+      const bestDur = sorted[0].racer ? sorted[0].racer.duration : null;
+
       write(`  ${c.dim}⏱ ${comp.name}${c.reset}\n`);
-      for (let i = 0; i < racers.length; i++) {
-        const color = RACER_COLORS[i % RACER_COLORS.length];
-        if (comp.racers[i]) {
-          const isWinner = comp.winner === racers[i];
-          write(`${printBar(racers[i], comp.racers[i].duration, maxDur, color, isWinner)}\n`);
+      for (const entry of sorted) {
+        const color = RACER_COLORS[entry.index % RACER_COLORS.length];
+        if (entry.racer) {
+          const isWinner = comp.winner === entry.name;
+          let delta = '';
+          if (bestDur !== null && entry.racer.duration !== bestDur) {
+            delta = ` ${c.dim}(+${(entry.racer.duration - bestDur).toFixed(3)}s)${c.reset}`;
+          }
+          write(`${printBar(entry.name, entry.racer.duration, maxDur, color, isWinner)}${delta}\n`);
         } else {
-          write(`    ${color}${c.bold}${racers[i].padEnd(12)}${c.reset} ${c.dim}(no data)${c.reset}\n`);
+          write(`    ${color}${c.bold}${entry.name.padEnd(12)}${c.reset} ${c.dim}(no data)${c.reset}\n`);
         }
-      }
-      if (comp.diffPercent !== null && comp.diff >= 0) {
-        const winnerIdx = racers.indexOf(comp.winner);
-        const winColor = RACER_COLORS[winnerIdx % RACER_COLORS.length];
-        write(`    ${winColor}${c.bold}${comp.winner}${c.reset} is ${c.bold}${comp.diffPercent.toFixed(1)}%${c.reset} faster ${c.dim}(Δ ${comp.diff.toFixed(3)}s)${c.reset}\n`);
       }
     }
   }
@@ -168,10 +181,15 @@ export function printSummary(summary) {
     });
     write('\n');
   }
+
+  // Profile analysis — only show if metrics were captured
+  if (profileComparison && profileComparison.comparisons.length > 0) {
+    printProfileAnalysis(profileComparison, racers);
+  }
 }
 
 export function buildMarkdownSummary(summary, sideBySideName) {
-  const { racers, comparisons, overallWinner, wins, errors, videos, clickCounts, settings, timestamp } = summary;
+  const { racers, comparisons, overallWinner, wins, errors, videos, clickCounts, settings, timestamp, profileComparison } = summary;
   const lines = [];
 
   // ASCII art header
@@ -227,6 +245,11 @@ export function buildMarkdownSummary(summary, sideBySideName) {
     lines.push('');
     lines.push(...buildResultsTable(comparisons, racers, clickCounts));
     lines.push('');
+  }
+
+  // Profile analysis
+  if (profileComparison && profileComparison.comparisons.length > 0) {
+    lines.push(buildProfileMarkdown(profileComparison, racers));
   }
 
   // Files

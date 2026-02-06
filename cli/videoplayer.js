@@ -3,32 +3,108 @@
  * video player for race results. Supports 2-5 racers.
  */
 
+import { PROFILE_METRICS } from './profile-analysis.js';
+
 // Racer label colors matching RACER_COLORS from colors.js
 const RACER_CSS_COLORS = ['#e74c3c', '#3498db', '#27ae60', '#f1c40f', '#9b59b6'];
+
+/**
+ * Build sorted bar-chart HTML rows for a single metric.
+ * @param {Object[]} entries - Array of { name, index, val, formatted } sorted best-first
+ * @param {string|null} winner - Winner name
+ * @param {function} formatDelta - Formats the delta value as string
+ */
+function buildMetricRowsHtml(entries, winner, formatDelta) {
+  const nonNullVals = entries.filter(e => e.val !== null).map(e => e.val);
+  const maxVal = nonNullVals.length > 0 ? Math.max(...nonNullVals) : 0;
+  const bestVal = entries[0]?.val;
+  let html = '';
+  for (const entry of entries) {
+    const color = RACER_CSS_COLORS[entry.index % RACER_CSS_COLORS.length];
+    const barPct = entry.val !== null && maxVal > 0 ? Math.round((entry.val / maxVal) * 100) : 0;
+    let delta = '';
+    if (entry.val !== null && bestVal !== null && entry.val !== bestVal) {
+      delta = `<span class="profile-delta">(+${formatDelta(entry.val - bestVal)})</span>`;
+    }
+    html += `
+        <div class="profile-row">
+          <span class="profile-racer" style="color: ${color}">${entry.name}</span>
+          <span class="profile-bar-track">
+            <span class="profile-bar-fill" style="width: ${barPct}%; background: ${color}"></span>
+          </span>
+          <span class="profile-value">${entry.formatted}${delta}</span>
+          ${winner === entry.name ? '<span class="profile-medal">&#127942;</span>' : ''}
+        </div>`;
+  }
+  return html;
+}
+
+/** Sort racers by value ascending (best first), nulls last. */
+function sortByValue(racers, getValue) {
+  return racers
+    .map((name, i) => ({ name, index: i, ...getValue(i) }))
+    .sort((a, b) => {
+      if (a.val === null) return 1;
+      if (b.val === null) return -1;
+      return a.val - b.val;
+    });
+}
+
+function buildProfileHtml(profileComparison, racers) {
+  if (!profileComparison) return '';
+  const { measured, total } = profileComparison;
+  if (measured.comparisons.length === 0 && total.comparisons.length === 0) return '';
+
+  let html = `<div class="profile-analysis">
+  <h2>Performance Profile</h2>
+  <p class="profile-note">Lower values are better for all metrics</p>\n`;
+
+  const scopes = [
+    ['During Measurement (raceStart → raceEnd)', measured],
+    ['Total Session', total],
+  ];
+  for (const [title, section] of scopes) {
+    if (section.comparisons.length === 0) continue;
+    html += `<h3>${title}</h3>\n`;
+    for (const [category, comps] of Object.entries(section.byCategory)) {
+      html += `<h4>${category[0].toUpperCase() + category.slice(1)}</h4>\n`;
+      for (const comp of comps) {
+        const sorted = sortByValue(racers, i => ({ val: comp.values[i], formatted: comp.formatted[i] }));
+        const formatDelta = PROFILE_METRICS[comp.key].format;
+        html += `<div class="profile-metric">
+        <div class="profile-metric-name">${comp.name}</div>${buildMetricRowsHtml(sorted, comp.winner, formatDelta)}</div>\n`;
+      }
+    }
+    if (section.overallWinner === 'tie') {
+      html += `<div class="profile-winner">&#129309; Tie!</div>`;
+    } else if (section.overallWinner) {
+      const idx = racers.indexOf(section.overallWinner);
+      html += `<div class="profile-winner">&#127942; <span style="color: ${RACER_CSS_COLORS[idx % RACER_CSS_COLORS.length]}">${section.overallWinner}</span> wins!</div>`;
+    }
+  }
+
+  html += `</div>`;
+  return html;
+}
 
 export function buildPlayerHtml(summary, videoFiles, altFormat, altFiles, options = {}) {
   const { fullVideoFiles, mergedVideoFile } = options;
   const racers = summary.racers;
   const comparisons = summary.comparisons || [];
   const overallWinner = summary.overallWinner;
+  const profileComparison = summary.profileComparison || null;
   const count = racers.length;
 
-  // Generate table header columns
-  const headerCols = ['Measurement', ...racers, 'Winner', 'Diff'];
-  const tableHeader = headerCols.map(col => `<th>${col}</th>`).join('');
-
-  // Generate results rows
-  const resultsRows = comparisons.map(comp => {
-    const durationCells = racers.map((racer, i) => {
-      const duration = comp.racers[i] ? `${comp.racers[i].duration.toFixed(3)}s` : '-';
-      const winClass = comp.winner === racer ? ' class="winner"' : '';
-      return `<td${winClass}>${duration}</td>`;
-    }).join('');
-    const winner = comp.winner || '-';
-    const diff = comp.diffPercent !== null ? `${comp.diffPercent.toFixed(1)}%` : '-';
-    const winnerClass = comp.winner ? ' class="winner-col"' : '';
-    return `<tr><td>${comp.name}</td>${durationCells}<td${winnerClass}>${winner}</td><td>${diff}</td></tr>`;
-  }).join('\n        ');
+  // Generate results section (bar-chart style, sorted best-first)
+  let resultsHtml = '';
+  for (const comp of comparisons) {
+    const sorted = sortByValue(racers, i => {
+      const r = comp.racers[i];
+      return { val: r ? r.duration : null, formatted: r ? `${r.duration.toFixed(3)}s` : '-' };
+    });
+    resultsHtml += `<div class="profile-metric">
+        <div class="profile-metric-name">${comp.name}</div>${buildMetricRowsHtml(sorted, comp.winner, v => `${v.toFixed(3)}s`)}</div>\n`;
+  }
 
   const winnerBanner = overallWinner === 'tie'
     ? `<span class="trophy">&#129309;</span> It's a Tie!`
@@ -59,6 +135,9 @@ export function buildPlayerHtml(summary, videoFiles, altFormat, altFiles, option
     ${racers.map((racer, i) => `<a href="${altFiles[i]}" download>${racer} (.${altFormat})</a>`).join('\n    ')}
   </div>
 </div>` : '';
+
+  // Generate profile analysis section
+  const profileHtml = buildProfileHtml(profileComparison, racers);
 
   // Generate video element IDs for JavaScript
   const videoIds = racers.map((_, i) => `v${i}`);
@@ -264,12 +343,12 @@ export function buildPlayerHtml(summary, videoFiles, altFormat, altFiles, option
     cursor: pointer;
     flex-shrink: 0;
   }
-  .results-table, .downloads {
+  .downloads {
     max-width: 900px;
     width: 100%;
     padding: 0.5rem 1.5rem 1rem;
   }
-  .results-table h2, .downloads h2 {
+  .downloads h2 {
     font-family: Georgia, serif;
     color: #d4af37;
     font-size: 1.1rem;
@@ -277,24 +356,6 @@ export function buildPlayerHtml(summary, videoFiles, altFormat, altFiles, option
     text-transform: uppercase;
     letter-spacing: 0.1em;
   }
-  table {
-    width: 100%;
-    border-collapse: collapse;
-    font-size: 0.85rem;
-  }
-  th {
-    background: #2a2a2a;
-    color: #d4af37;
-    padding: 0.5rem;
-    text-align: left;
-    border-bottom: 2px solid #d4af37;
-  }
-  td {
-    padding: 0.4rem 0.5rem;
-    border-bottom: 1px solid #333;
-  }
-  td.winner { color: #4ecdc4; font-weight: bold; }
-  td.winner-col { color: #d4af37; }
 
   .download-links {
     display: flex;
@@ -313,6 +374,92 @@ export function buildPlayerHtml(summary, videoFiles, altFormat, altFiles, option
   .download-links a:hover {
     background: #3a3a3a;
     border-color: #d4af37;
+  }
+
+  .profile-analysis {
+    max-width: 900px;
+    width: 100%;
+    padding: 0.5rem 1.5rem 1rem;
+  }
+  .profile-analysis h2 {
+    font-family: Georgia, serif;
+    color: #d4af37;
+    font-size: 1.1rem;
+    margin-bottom: 0.3rem;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+  }
+  .profile-note {
+    color: #777;
+    font-size: 0.8rem;
+    margin-bottom: 1rem;
+  }
+  .profile-analysis h3 {
+    color: #e8e0d0;
+    font-size: 0.95rem;
+    margin: 1rem 0 0.5rem;
+    border-bottom: 1px solid #444;
+    padding-bottom: 0.3rem;
+  }
+  .profile-analysis h4 {
+    color: #999;
+    font-size: 0.8rem;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    margin: 0.8rem 0 0.4rem;
+  }
+  .profile-metric {
+    margin-bottom: 0.6rem;
+  }
+  .profile-metric-name {
+    color: #888;
+    font-size: 0.8rem;
+    margin-bottom: 0.2rem;
+  }
+  .profile-row {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.15rem 0;
+    font-size: 0.82rem;
+  }
+  .profile-racer {
+    font-weight: bold;
+    min-width: 90px;
+    flex-shrink: 0;
+  }
+  .profile-bar-track {
+    flex: 1;
+    height: 10px;
+    background: #2a2a2a;
+    border-radius: 3px;
+    overflow: hidden;
+    max-width: 200px;
+  }
+  .profile-bar-fill {
+    display: block;
+    height: 100%;
+    border-radius: 3px;
+    opacity: 0.8;
+  }
+  .profile-value {
+    min-width: 120px;
+    flex-shrink: 0;
+    text-align: right;
+    color: #ccc;
+  }
+  .profile-delta {
+    color: #888;
+    font-size: 0.75rem;
+    margin-left: 0.3rem;
+  }
+  .profile-medal {
+    font-size: 0.85rem;
+  }
+  .profile-winner {
+    font-size: 0.9rem;
+    font-weight: bold;
+    margin-top: 0.2rem;
   }
 </style>
 </head>
@@ -346,17 +493,12 @@ ${mergedVideoElement}
   </select>
 </div>
 
-<div class="results-table">
+<div class="profile-analysis">
   <h2>Results</h2>
-  <table>
-    <thead>
-      <tr>${tableHeader}</tr>
-    </thead>
-    <tbody>
-        ${resultsRows}
-    </tbody>
-  </table>
+${resultsHtml}
 </div>
+
+${profileHtml}
 
 ${downloadLinks}
 
