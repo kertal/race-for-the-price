@@ -11,6 +11,7 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { PROFILE_METRICS } from './profile-analysis.js';
+import { getPlacementOrder } from './summary.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const TEMPLATE = fs.readFileSync(path.join(__dirname, 'player.html'), 'utf-8');
@@ -69,6 +70,30 @@ function sortByValue(racers, getValue) {
 // ---------------------------------------------------------------------------
 // Section Builders — each returns an HTML string (or '' if nothing to show)
 // ---------------------------------------------------------------------------
+
+function buildRunNavHtml(runNav) {
+  if (!runNav) return '';
+  const { currentRun, totalRuns, pathPrefix } = runNav;
+  let html = `<div class="run-nav">`;
+  for (let i = 1; i <= totalRuns; i++) {
+    const isCurrent = currentRun === i;
+    const cls = isCurrent ? 'run-nav-btn active' : 'run-nav-btn';
+    if (isCurrent) {
+      html += `<span class="${cls}" aria-current="page">Run ${i}</span>`;
+    } else {
+      html += `<a class="${cls}" href="${pathPrefix}${i}/index.html">Run ${i}</a>`;
+    }
+  }
+  const isMedianCurrent = currentRun === 'median';
+  const medianCls = isMedianCurrent ? 'run-nav-btn active' : 'run-nav-btn';
+  if (isMedianCurrent) {
+    html += `<span class="${medianCls}" aria-current="page">Median</span>`;
+  } else {
+    html += `<a class="${medianCls}" href="${pathPrefix}index.html">Median</a>`;
+  }
+  html += `</div>`;
+  return html;
+}
 
 function buildRaceInfoHtml(summary) {
   const { racers, settings, timestamp } = summary;
@@ -200,12 +225,41 @@ function buildFilesHtml(racers, videoFiles, options) {
 }
 
 // ---------------------------------------------------------------------------
+// Player Section Builder — returns player container + controls (or '' if no videos)
+// ---------------------------------------------------------------------------
+
+function buildPlayerSectionHtml(videoElements, mergedVideoElement) {
+  return `<div class="player-container" id="playerContainer">
+${videoElements}
+</div>
+${mergedVideoElement}
+
+<div class="controls">
+  <div class="controls-row">
+    <button class="frame-btn" id="prevFrame" title="Previous frame (\u2190)">\u25C0\u25C0</button>
+    <button class="play-btn" id="playBtn">\u25B6</button>
+    <button class="frame-btn" id="nextFrame" title="Next frame (\u2192)">\u25B6\u25B6</button>
+    <input type="range" class="scrubber" id="scrubber" min="0" max="1000" value="0">
+  </div>
+  <span class="time-display" id="timeDisplay">0:00.000 / 0:00.000</span>
+  <span class="frame-display" id="frameDisplay">Frame: 0</span>
+  <select class="speed-select" id="speedSelect">
+    <option value="0.25">0.25x</option>
+    <option value="0.5">0.5x</option>
+    <option value="1" selected>1x</option>
+    <option value="2">2x</option>
+  </select>
+</div>`;
+}
+
+// ---------------------------------------------------------------------------
 // Player Script Builder
 // ---------------------------------------------------------------------------
 
 function buildPlayerScript(config) {
   const { videoVars, videoArray, raceVideoPaths, fullVideoPaths } = config;
-  return `(function() {
+  return `<script>
+(function() {
   ${videoVars}
   const raceVideos = ${videoArray};
   const raceVideoPaths = ${raceVideoPaths};
@@ -242,6 +296,10 @@ function buildPlayerScript(config) {
     const t = primary.currentTime || 0;
     timeDisplay.textContent = fmt(t) + ' / ' + fmt(duration);
     frameDisplay.textContent = 'Frame: ' + getFrame(t);
+  }
+
+  function seekAll(t) {
+    videos.forEach(v => v && (v.currentTime = Math.min(t, v.duration || t)));
   }
 
   function onMeta() {
@@ -338,7 +396,7 @@ function buildPlayerScript(config) {
 
   scrubber.addEventListener('input', function() {
     const t = (scrubber.value / 1000) * duration;
-    videos.forEach(v => v && (v.currentTime = t));
+    seekAll(t);
   });
 
   speedSelect.addEventListener('change', function() {
@@ -349,7 +407,7 @@ function buildPlayerScript(config) {
   function stepFrame(delta) {
     if (playing) { videos.forEach(v => v && v.pause()); playing = false; playBtn.textContent = '\\u25B6'; }
     const t = Math.max(0, Math.min(duration, primary.currentTime + delta));
-    videos.forEach(v => v && (v.currentTime = t));
+    seekAll(t);
   }
 
   document.getElementById('prevFrame').addEventListener('click', function() { stepFrame(-FRAME); });
@@ -361,7 +419,8 @@ function buildPlayerScript(config) {
     else if (e.key === 'ArrowRight') { e.preventDefault(); stepFrame(FRAME); }
     else if (e.key === ' ') { e.preventDefault(); playBtn.click(); }
   });
-})();`;
+})();
+</script>`;
 }
 
 // ---------------------------------------------------------------------------
@@ -369,7 +428,7 @@ function buildPlayerScript(config) {
 // ---------------------------------------------------------------------------
 
 export function buildPlayerHtml(summary, videoFiles, altFormat, altFiles, options = {}) {
-  const { fullVideoFiles, mergedVideoFile, traceFiles } = options;
+  const { fullVideoFiles, mergedVideoFile, traceFiles, runNavigation, medianRunLabel } = options;
   const racers = summary.racers;
   const count = racers.length;
 
@@ -389,19 +448,44 @@ export function buildPlayerHtml(summary, videoFiles, altFormat, altFiles, option
       ? `<span class="trophy">&#127942;</span> ${summary.overallWinner.toUpperCase()} wins!`
       : '';
 
-  // Video elements
-  const videoElements = racers.map((racer, i) => {
-    const color = RACER_CSS_COLORS[i % RACER_CSS_COLORS.length];
-    return `  <div class="racer">
-    <div class="racer-label" style="color: ${color}">${racer}</div>
-    <video id="v${i}" src="${videoFiles[i]}" preload="auto" muted></video>
-  </div>`;
-  }).join('\n');
+  // Video elements — ordered by placement (winner first)
+  const hasVideos = videoFiles && videoFiles.length > 0;
+  const placementOrder = getPlacementOrder(summary);
 
-  const mergedVideo = mergedVideoFile ? `
+  let playerSection = '';
+  let scriptTag = '';
+
+  if (hasVideos) {
+    const videoElements = placementOrder.map((origIdx, displayIdx) => {
+      const color = RACER_CSS_COLORS[origIdx % RACER_CSS_COLORS.length];
+      const racer = racers[origIdx];
+      return `  <div class="racer">
+    <div class="racer-label" style="color: ${color}">${racer}</div>
+    <video id="v${displayIdx}" src="${videoFiles[origIdx]}" preload="auto" muted></video>
+  </div>`;
+    }).join('\n');
+
+    const mergedVideoElement = mergedVideoFile ? `
 <div class="merged-container" id="mergedContainer" style="display: none;">
   <video id="mergedVideo" src="${mergedVideoFile}" preload="auto" muted></video>
 </div>` : '';
+
+    playerSection = buildPlayerSectionHtml(videoElements, mergedVideoElement);
+
+    // Player script config
+    const videoIds = placementOrder.map((_, i) => `v${i}`);
+    const orderedVideoFiles = placementOrder.map(i => videoFiles[i]);
+    const orderedFullVideoFiles = fullVideoFiles ? placementOrder.map(i => fullVideoFiles[i]) : null;
+
+    scriptTag = buildPlayerScript({
+      videoVars: videoIds.map(id => `const ${id} = document.getElementById('${id}');`).join('\n  '),
+      videoArray: `[${videoIds.join(', ')}]`,
+      raceVideoPaths: `[${orderedVideoFiles.map(f => `'${f}'`).join(', ')}]`,
+      fullVideoPaths: orderedFullVideoFiles
+        ? `[${orderedFullVideoFiles.map(f => `'${f}'`).join(', ')}]`
+        : 'null',
+    });
+  }
 
   // Mode toggle
   const hasFullVideos = fullVideoFiles && fullVideoFiles.length > 0;
@@ -413,32 +497,22 @@ export function buildPlayerHtml(summary, videoFiles, altFormat, altFiles, option
     ${hasMergedVideo ? '<button class="mode-btn" id="modeMerged" title="Side-by-side merged video">Merged</button>' : ''}
   </div>` : '';
 
-  // Player script config
-  const videoIds = racers.map((_, i) => `v${i}`);
-  const scriptConfig = {
-    videoVars: videoIds.map(id => `const ${id} = document.getElementById('${id}');`).join('\n  '),
-    videoArray: `[${videoIds.join(', ')}]`,
-    raceVideoPaths: `[${videoFiles.map(f => `'${f}'`).join(', ')}]`,
-    fullVideoPaths: fullVideoFiles
-      ? `[${fullVideoFiles.map(f => `'${f}'`).join(', ')}]`
-      : 'null',
-  };
-
   // Render template with all sections
   return render(TEMPLATE, {
     title,
     layoutCss: `.player-container { max-width: ${containerMaxWidth}px; }\n  .racer { max-width: ${maxWidth}px; }`,
+    runNav: buildRunNavHtml(runNavigation),
     winnerBanner,
+    videoSourceNote: medianRunLabel ? `<div class="video-source-note">Videos from ${medianRunLabel} (closest to median)</div>` : '',
     raceInfo: buildRaceInfoHtml(summary),
     errors: buildErrorsHtml(summary.errors),
     modeToggle,
-    videoElements,
-    mergedVideo,
+    playerSection,
     results: buildResultsHtml(summary.comparisons || [], racers, summary.clickCounts),
     profile: buildProfileHtml(summary.profileComparison || null, racers),
     files: buildFilesHtml(racers, videoFiles, {
       fullVideoFiles, mergedVideoFile, traceFiles, altFormat, altFiles,
     }),
-    playerScript: buildPlayerScript(scriptConfig),
+    scriptTag,
   });
 }
