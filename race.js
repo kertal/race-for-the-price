@@ -296,10 +296,10 @@ async function main() {
       for (let i = 0; i < totalRuns; i++) {
         console.error(`\n  ${c.bold}${c.cyan}── Run ${i + 1} of ${totalRuns} ──${c.reset}`);
         const runNav = { currentRun: i + 1, totalRuns, pathPrefix: '../' };
-        const { summary, sideBySideName } = await runSingleRace(path.join(resultsDir, String(i + 1)), runNav);
+        const { summary, sideBySidePath, sideBySideName } = await runSingleRace(path.join(resultsDir, String(i + 1)), runNav);
         printSummary(summary);
         summaries.push(summary);
-        sideBySideNames.push(sideBySideName);
+        sideBySideNames.push(sideBySidePath ? sideBySideName : null);
       }
 
       const medianSummary = buildMedianSummary(summaries, resultsDir);

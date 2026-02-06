@@ -56,7 +56,7 @@ export function getPlacementOrder(summary) {
   });
 
   const indices = racers.map((_, i) => i);
-  indices.sort((a, b) => avgRank[a] - avgRank[b]);
+  indices.sort((a, b) => (avgRank[a] - avgRank[b]) || (a - b));
   return indices;
 }
 
@@ -299,12 +299,18 @@ export function buildMarkdownSummary(summary, sideBySideName) {
  * Returns the 0-based index of the best-matching run.
  */
 export function findMedianRunIndex(summaries, medianSummary) {
+  const compMaps = summaries.map(s => {
+    const map = new Map();
+    for (const comp of s.comparisons) map.set(comp.name, comp);
+    return map;
+  });
+
   let bestIdx = 0;
   let bestDist = Infinity;
   for (let i = 0; i < summaries.length; i++) {
     let totalDist = 0;
     for (const medComp of medianSummary.comparisons) {
-      const runComp = summaries[i].comparisons.find(c => c.name === medComp.name);
+      const runComp = compMaps[i].get(medComp.name);
       if (!runComp) continue;
       for (let r = 0; r < medComp.racers.length; r++) {
         const medDur = medComp.racers[r]?.duration;

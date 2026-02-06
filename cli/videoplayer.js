@@ -93,13 +93,21 @@ function buildRunNavHtml(runNav) {
   const { currentRun, totalRuns, pathPrefix } = runNav;
   let html = `<div class="run-nav">`;
   for (let i = 1; i <= totalRuns; i++) {
-    const href = currentRun === i ? '#' : `${pathPrefix}${i}/index.html`;
-    const cls = currentRun === i ? 'run-nav-btn active' : 'run-nav-btn';
-    html += `<a class="${cls}" href="${href}">Run ${i}</a>`;
+    const isCurrent = currentRun === i;
+    const cls = isCurrent ? 'run-nav-btn active' : 'run-nav-btn';
+    if (isCurrent) {
+      html += `<span class="${cls}" aria-current="page">Run ${i}</span>`;
+    } else {
+      html += `<a class="${cls}" href="${pathPrefix}${i}/index.html">Run ${i}</a>`;
+    }
   }
-  const medianHref = currentRun === 'median' ? '#' : `${pathPrefix}index.html`;
-  const medianCls = currentRun === 'median' ? 'run-nav-btn active' : 'run-nav-btn';
-  html += `<a class="${medianCls}" href="${medianHref}">Median</a>`;
+  const isMedianCurrent = currentRun === 'median';
+  const medianCls = isMedianCurrent ? 'run-nav-btn active' : 'run-nav-btn';
+  if (isMedianCurrent) {
+    html += `<span class="${medianCls}" aria-current="page">Median</span>`;
+  } else {
+    html += `<a class="${medianCls}" href="${pathPrefix}index.html">Median</a>`;
+  }
   html += `</div>`;
   return html;
 }
@@ -246,7 +254,7 @@ export function buildPlayerHtml(summary, videoFiles, altFormat, altFiles, option
     color: #1a1a1a;
     border-color: #d4af37;
     font-weight: bold;
-    pointer-events: none;
+    cursor: default;
   }
   h1 {
     font-family: Georgia, 'Times New Roman', serif;
