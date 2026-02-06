@@ -5,18 +5,19 @@
 import fs from 'fs';
 import path from 'path';
 import { execFileSync } from 'child_process';
-import { c } from './colors.js';
+import { c, FORMAT_EXTENSIONS, VIDEO_DEFAULTS } from './colors.js';
 
 /** Move recordings from the runner's temp dir to the results folder. */
-export function moveResults(recordingsBase, racerName, destDir, runnerResult, browserKey) {
+export function moveResults(recordingsBase, racerName, destDir, browserResult) {
   const sourceDir = path.join(recordingsBase, racerName);
   const data = {
     videoPath: null,
     fullVideoPath: null,
     tracePath: null,
-    clickEvents: runnerResult[`${browserKey}ClickEvents`] || [],
-    measurements: runnerResult[`${browserKey}Measurements`] || [],
-    error: runnerResult.errors?.find(e => e.startsWith(racerName)) || null,
+    clickEvents: browserResult.clickEvents || [],
+    measurements: browserResult.measurements || [],
+    profileMetrics: browserResult.profileMetrics || null,
+    error: browserResult.error || null,
   };
 
   try {
@@ -51,6 +52,9 @@ export function moveResults(recordingsBase, racerName, destDir, runnerResult, br
 
     fs.writeFileSync(path.join(destDir, 'clicks.json'), JSON.stringify(data.clickEvents, null, 2));
     fs.writeFileSync(path.join(destDir, 'measurements.json'), JSON.stringify(data.measurements, null, 2));
+    if (data.profileMetrics) {
+      fs.writeFileSync(path.join(destDir, 'profile-metrics.json'), JSON.stringify(data.profileMetrics, null, 2));
+    }
   } catch (e) {
     console.error(`${c.dim}Warning: Could not move ${racerName} results: ${e.message}${c.reset}`);
   }
@@ -73,12 +77,17 @@ export function convertVideos(results, format) {
     for (const key of ['videoPath', 'fullVideoPath']) {
       if (!r[key]) continue;
       const src = r[key];
-      const ext = format === 'mov' ? '.mov' : '.gif';
+      const ext = FORMAT_EXTENSIONS[format] || FORMAT_EXTENSIONS.gif;
       const dest = src.replace(/\.webm$/, ext);
       try {
         const args = ['-y', '-i', src];
-        if (format === 'mov') args.push('-c:v', 'libx264', '-pix_fmt', 'yuv420p');
-        else args.push('-filter_complex', 'fps=10,scale=640:-2,split[s0][s1];[s0]palettegen=max_colors=128:stats_mode=diff[p];[s1][p]paletteuse=dither=bayer:bayer_scale=3');
+        if (format === 'mov') {
+          args.push('-c:v', 'libx264', '-pix_fmt', 'yuv420p');
+        } else {
+          // GIF optimization: fps, scale, palette generation with Bayer dithering
+          const { scaleWidth2to3, gifFps, gifMaxColors, gifBayerScale } = VIDEO_DEFAULTS;
+          args.push('-filter_complex', `fps=${gifFps},scale=${scaleWidth2to3}:-2,split[s0][s1];[s0]palettegen=max_colors=${gifMaxColors}:stats_mode=diff[p];[s1][p]paletteuse=dither=bayer:bayer_scale=${gifBayerScale}`);
+        }
         args.push(dest);
         execFileSync('ffmpeg', args, { timeout: 300000, stdio: 'pipe' });
         if (format === 'gif') compressGif(dest);
