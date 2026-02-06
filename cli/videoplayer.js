@@ -8,84 +8,47 @@ import { PROFILE_METRICS } from './profile-analysis.js';
 // Racer label colors matching RACER_COLORS from colors.js
 const RACER_CSS_COLORS = ['#e74c3c', '#3498db', '#27ae60', '#f1c40f', '#9b59b6'];
 
-const categoryLabels = {
-  network: 'Network',
-  loading: 'Loading',
-  memory: 'Memory',
-  computation: 'Computation',
-  rendering: 'Rendering'
-};
-
 /**
- * Build HTML for a single profile scope (measured or total).
+ * Build sorted bar-chart HTML rows for a single metric.
+ * @param {Object[]} entries - Array of { name, index, val, formatted } sorted best-first
+ * @param {string|null} winner - Winner name
+ * @param {function} formatDelta - Formats the delta value as string
  */
-function buildProfileScopeHtml(title, section, racers) {
-  const { comparisons, wins, overallWinner, byCategory } = section;
-  if (comparisons.length === 0) return '';
-
-  let html = `<h3>${title}</h3>\n`;
-
-  for (const [category, comps] of Object.entries(byCategory)) {
-    html += `<h4>${categoryLabels[category] || category}</h4>\n`;
-
-    for (const comp of comps) {
-      const metricDef = PROFILE_METRICS[comp.key];
-      const maxVal = Math.max(...comp.values.filter(v => v !== null));
-
-      // Sort racers by value ascending (best first), nulls last
-      const sorted = racers
-        .map((name, i) => ({ name, index: i, val: comp.values[i], formatted: comp.formatted[i] }))
-        .sort((a, b) => {
-          if (a.val === null) return 1;
-          if (b.val === null) return -1;
-          return a.val - b.val;
-        });
-      const bestVal = sorted[0].val;
-
-      html += `<div class="profile-metric">
-        <div class="profile-metric-name">${comp.name}</div>`;
-
-      for (const entry of sorted) {
-        const color = RACER_CSS_COLORS[entry.index % RACER_CSS_COLORS.length];
-        const isWinner = comp.winner === entry.name;
-        const barPct = entry.val !== null && maxVal > 0
-          ? Math.round((entry.val / maxVal) * 100)
-          : 0;
-
-        let delta = '';
-        if (entry.val !== null && bestVal !== null && entry.val !== bestVal) {
-          const deltaVal = entry.val - bestVal;
-          delta = `<span class="profile-delta">(+${metricDef.format(deltaVal)})</span>`;
-        }
-
-        html += `
+function buildMetricRowsHtml(entries, winner, formatDelta) {
+  const maxVal = Math.max(...entries.filter(e => e.val !== null).map(e => e.val));
+  const bestVal = entries[0]?.val;
+  let html = '';
+  for (const entry of entries) {
+    const color = RACER_CSS_COLORS[entry.index % RACER_CSS_COLORS.length];
+    const barPct = entry.val !== null && maxVal > 0 ? Math.round((entry.val / maxVal) * 100) : 0;
+    let delta = '';
+    if (entry.val !== null && bestVal !== null && entry.val !== bestVal) {
+      delta = `<span class="profile-delta">(+${formatDelta(entry.val - bestVal)})</span>`;
+    }
+    html += `
         <div class="profile-row">
           <span class="profile-racer" style="color: ${color}">${entry.name}</span>
           <span class="profile-bar-track">
             <span class="profile-bar-fill" style="width: ${barPct}%; background: ${color}"></span>
           </span>
           <span class="profile-value">${entry.formatted}${delta}</span>
-          ${isWinner ? '<span class="profile-medal">&#127942;</span>' : ''}
+          ${winner === entry.name ? '<span class="profile-medal">&#127942;</span>' : ''}
         </div>`;
-      }
-      html += `</div>\n`;
-    }
   }
-
-  if (overallWinner === 'tie') {
-    html += `<div class="profile-winner">&#129309; Tie!</div>`;
-  } else if (overallWinner) {
-    const winnerIdx = racers.indexOf(overallWinner);
-    const winColor = RACER_CSS_COLORS[winnerIdx % RACER_CSS_COLORS.length];
-    html += `<div class="profile-winner">&#127942; <span style="color: ${winColor}">${overallWinner}</span> wins!</div>`;
-  }
-
   return html;
 }
 
-/**
- * Build the full profile analysis HTML section.
- */
+/** Sort racers by value ascending (best first), nulls last. */
+function sortByValue(racers, getValue) {
+  return racers
+    .map((name, i) => ({ name, index: i, ...getValue(i) }))
+    .sort((a, b) => {
+      if (a.val === null) return 1;
+      if (b.val === null) return -1;
+      return a.val - b.val;
+    });
+}
+
 function buildProfileHtml(profileComparison, racers) {
   if (!profileComparison) return '';
   const { measured, total } = profileComparison;
@@ -95,11 +58,28 @@ function buildProfileHtml(profileComparison, racers) {
   <h2>Performance Profile</h2>
   <p class="profile-note">Lower values are better for all metrics</p>\n`;
 
-  if (measured.comparisons.length > 0) {
-    html += buildProfileScopeHtml('During Measurement (raceStart → raceEnd)', measured, racers);
-  }
-  if (total.comparisons.length > 0) {
-    html += buildProfileScopeHtml('Total Session', total, racers);
+  const scopes = [
+    ['During Measurement (raceStart → raceEnd)', measured],
+    ['Total Session', total],
+  ];
+  for (const [title, section] of scopes) {
+    if (section.comparisons.length === 0) continue;
+    html += `<h3>${title}</h3>\n`;
+    for (const [category, comps] of Object.entries(section.byCategory)) {
+      html += `<h4>${category[0].toUpperCase() + category.slice(1)}</h4>\n`;
+      for (const comp of comps) {
+        const sorted = sortByValue(racers, i => ({ val: comp.values[i], formatted: comp.formatted[i] }));
+        const formatDelta = PROFILE_METRICS[comp.key].format;
+        html += `<div class="profile-metric">
+        <div class="profile-metric-name">${comp.name}</div>${buildMetricRowsHtml(sorted, comp.winner, formatDelta)}</div>\n`;
+      }
+    }
+    if (section.overallWinner === 'tie') {
+      html += `<div class="profile-winner">&#129309; Tie!</div>`;
+    } else if (section.overallWinner) {
+      const idx = racers.indexOf(section.overallWinner);
+      html += `<div class="profile-winner">&#127942; <span style="color: ${RACER_CSS_COLORS[idx % RACER_CSS_COLORS.length]}">${section.overallWinner}</span> wins!</div>`;
+    }
   }
 
   html += `</div>`;
@@ -115,53 +95,15 @@ export function buildPlayerHtml(summary, videoFiles, altFormat, altFiles, option
   const count = racers.length;
 
   // Generate results section (bar-chart style, sorted best-first)
-  const resultsHtml = comparisons.length > 0 ? (() => {
-    let html = '';
-    for (const comp of comparisons) {
-      const maxDuration = Math.max(...comp.racers.filter(r => r !== null).map(r => r.duration));
-
-      // Sort racers by duration ascending (best/fastest first), nulls last
-      const sorted = racers
-        .map((name, i) => ({ name, index: i, racer: comp.racers[i] }))
-        .sort((a, b) => {
-          if (!a.racer) return 1;
-          if (!b.racer) return -1;
-          return a.racer.duration - b.racer.duration;
-        });
-      const bestDuration = sorted[0].racer ? sorted[0].racer.duration : null;
-
-      html += `<div class="profile-metric">
-        <div class="profile-metric-name">${comp.name}</div>`;
-
-      for (const entry of sorted) {
-        const color = RACER_CSS_COLORS[entry.index % RACER_CSS_COLORS.length];
-        const duration = entry.racer ? entry.racer.duration : null;
-        const formatted = duration !== null ? `${duration.toFixed(3)}s` : '-';
-        const isWinner = comp.winner === entry.name;
-        const barPct = duration !== null && maxDuration > 0
-          ? Math.round((duration / maxDuration) * 100)
-          : 0;
-
-        let delta = '';
-        if (duration !== null && bestDuration !== null && duration !== bestDuration) {
-          const deltaVal = duration - bestDuration;
-          delta = `<span class="profile-delta">(+${deltaVal.toFixed(3)}s)</span>`;
-        }
-
-        html += `
-        <div class="profile-row">
-          <span class="profile-racer" style="color: ${color}">${entry.name}</span>
-          <span class="profile-bar-track">
-            <span class="profile-bar-fill" style="width: ${barPct}%; background: ${color}"></span>
-          </span>
-          <span class="profile-value">${formatted}${delta}</span>
-          ${isWinner ? '<span class="profile-medal">&#127942;</span>' : ''}
-        </div>`;
-      }
-      html += `</div>\n`;
-    }
-    return html;
-  })() : '';
+  let resultsHtml = '';
+  for (const comp of comparisons) {
+    const sorted = sortByValue(racers, i => {
+      const r = comp.racers[i];
+      return { val: r ? r.duration : null, formatted: r ? `${r.duration.toFixed(3)}s` : '-' };
+    });
+    resultsHtml += `<div class="profile-metric">
+        <div class="profile-metric-name">${comp.name}</div>${buildMetricRowsHtml(sorted, comp.winner, v => `${v.toFixed(3)}s`)}</div>\n`;
+  }
 
   const winnerBanner = overallWinner === 'tie'
     ? `<span class="trophy">&#129309;</span> It's a Tie!`

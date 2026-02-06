@@ -14,141 +14,35 @@ import { c, RACER_COLORS } from './colors.js';
 
 /**
  * Performance metric definitions.
- * Each metric has a name, description, unit, format function, category, and scope.
+ * Keys use "scope.metric" format; scope/category are derived from the key structure.
  */
-export const PROFILE_METRICS = {
-  // === MEASURED METRICS (between raceStart/raceEnd) ===
-  // Network metrics (measured)
-  'measured.networkTransferSize': {
-    name: 'Network Transfer',
-    description: 'Bytes transferred during measurement',
-    unit: 'bytes',
-    format: formatBytes,
-    category: 'network',
-    scope: 'measured'
-  },
-  'measured.networkRequestCount': {
-    name: 'Network Requests',
-    description: 'Requests made during measurement',
-    unit: 'requests',
-    format: (v) => `${v} req`,
-    category: 'network',
-    scope: 'measured'
-  },
-  // Computation metrics (measured)
-  'measured.scriptDuration': {
-    name: 'Script Execution',
-    description: 'JavaScript execution during measurement',
-    unit: 'ms',
-    format: formatMs,
-    category: 'computation',
-    scope: 'measured'
-  },
-  'measured.taskDuration': {
-    name: 'Task Duration',
-    description: 'Browser tasks during measurement',
-    unit: 'ms',
-    format: formatMs,
-    category: 'computation',
-    scope: 'measured'
-  },
-  // Rendering metrics (measured)
-  'measured.layoutDuration': {
-    name: 'Layout Time',
-    description: 'Layout calculations during measurement',
-    unit: 'ms',
-    format: formatMs,
-    category: 'rendering',
-    scope: 'measured'
-  },
-  'measured.recalcStyleDuration': {
-    name: 'Style Recalculation',
-    description: 'Style recalcs during measurement',
-    unit: 'ms',
-    format: formatMs,
-    category: 'rendering',
-    scope: 'measured'
-  },
-
-  // === TOTAL METRICS (entire session) ===
-  // Network metrics (total)
-  'total.networkTransferSize': {
-    name: 'Network Transfer',
-    description: 'Total bytes transferred over network',
-    unit: 'bytes',
-    format: formatBytes,
-    category: 'network',
-    scope: 'total'
-  },
-  'total.networkRequestCount': {
-    name: 'Network Requests',
-    description: 'Total number of network requests',
-    unit: 'requests',
-    format: (v) => `${v} req`,
-    category: 'network',
-    scope: 'total'
-  },
-  // Loading metrics (total only - these are page-level)
-  'total.domContentLoaded': {
-    name: 'DOM Content Loaded',
-    description: 'Time until DOMContentLoaded event',
-    unit: 'ms',
-    format: formatMs,
-    category: 'loading',
-    scope: 'total'
-  },
-  'total.domComplete': {
-    name: 'DOM Complete',
-    description: 'Time until DOM is fully loaded',
-    unit: 'ms',
-    format: formatMs,
-    category: 'loading',
-    scope: 'total'
-  },
-  // Memory metrics (total only - snapshot at end)
-  'total.jsHeapUsedSize': {
-    name: 'JS Heap Used',
-    description: 'JavaScript heap memory used',
-    unit: 'bytes',
-    format: formatBytes,
-    category: 'memory',
-    scope: 'total'
-  },
-  // Computation metrics (total)
-  'total.scriptDuration': {
-    name: 'Script Execution',
-    description: 'Total JavaScript execution time',
-    unit: 'ms',
-    format: formatMs,
-    category: 'computation',
-    scope: 'total'
-  },
-  'total.taskDuration': {
-    name: 'Task Duration',
-    description: 'Total time spent on browser tasks',
-    unit: 'ms',
-    format: formatMs,
-    category: 'computation',
-    scope: 'total'
-  },
-  // Rendering metrics (total)
-  'total.layoutDuration': {
-    name: 'Layout Time',
-    description: 'Total time spent calculating layouts',
-    unit: 'ms',
-    format: formatMs,
-    category: 'rendering',
-    scope: 'total'
-  },
-  'total.recalcStyleDuration': {
-    name: 'Style Recalculation',
-    description: 'Total time spent recalculating styles',
-    unit: 'ms',
-    format: formatMs,
-    category: 'rendering',
-    scope: 'total'
-  }
+const metricDefs = {
+  networkTransferSize: { name: 'Network Transfer', format: formatBytes, category: 'network' },
+  networkRequestCount: { name: 'Network Requests', format: (v) => `${v} req`, category: 'network' },
+  scriptDuration:      { name: 'Script Execution', format: formatMs, category: 'computation' },
+  taskDuration:        { name: 'Task Duration', format: formatMs, category: 'computation' },
+  layoutDuration:      { name: 'Layout Time', format: formatMs, category: 'rendering' },
+  recalcStyleDuration: { name: 'Style Recalculation', format: formatMs, category: 'rendering' },
+  domContentLoaded:    { name: 'DOM Content Loaded', format: formatMs, category: 'loading' },
+  domComplete:         { name: 'DOM Complete', format: formatMs, category: 'loading' },
+  jsHeapUsedSize:      { name: 'JS Heap Used', format: formatBytes, category: 'memory' },
 };
+
+// Measured metrics (between raceStart/raceEnd)
+const MEASURED_METRICS = ['networkTransferSize', 'networkRequestCount', 'scriptDuration', 'taskDuration', 'layoutDuration', 'recalcStyleDuration'];
+// Total metrics (entire session) — includes loading/memory which are total-only
+const TOTAL_METRICS = ['networkTransferSize', 'networkRequestCount', 'domContentLoaded', 'domComplete', 'jsHeapUsedSize', 'scriptDuration', 'taskDuration', 'layoutDuration', 'recalcStyleDuration'];
+
+// Build the full PROFILE_METRICS map with scope-prefixed keys
+export const PROFILE_METRICS = {};
+for (const metric of MEASURED_METRICS) {
+  const def = metricDefs[metric];
+  PROFILE_METRICS[`measured.${metric}`] = { ...def, scope: 'measured' };
+}
+for (const metric of TOTAL_METRICS) {
+  const def = metricDefs[metric];
+  PROFILE_METRICS[`total.${metric}`] = { ...def, scope: 'total' };
+}
 
 function formatBytes(bytes) {
   if (bytes === 0) return '0 B';
@@ -397,16 +291,8 @@ function buildScopeMarkdown(title, section, racers) {
   lines.push(`#### ${title}`);
   lines.push('');
 
-  const categoryLabelsPlain = {
-    network: 'Network',
-    loading: 'Loading',
-    memory: 'Memory',
-    computation: 'Computation',
-    rendering: 'Rendering'
-  };
-
   for (const [category, comps] of Object.entries(byCategory)) {
-    lines.push(`**${categoryLabelsPlain[category] || category}**`);
+    lines.push(`**${category[0].toUpperCase() + category.slice(1)}**`);
     lines.push('');
     const headerCols = ['Metric', ...racers, 'Winner', 'Diff'];
     lines.push(`| ${headerCols.join(' | ')} |`);
