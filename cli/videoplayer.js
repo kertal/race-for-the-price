@@ -114,22 +114,54 @@ export function buildPlayerHtml(summary, videoFiles, altFormat, altFiles, option
   const profileComparison = summary.profileComparison || null;
   const count = racers.length;
 
-  // Generate table header columns
-  const headerCols = ['Measurement', ...racers, 'Winner', 'Diff'];
-  const tableHeader = headerCols.map(col => `<th>${col}</th>`).join('');
+  // Generate results section (bar-chart style, sorted best-first)
+  const resultsHtml = comparisons.length > 0 ? (() => {
+    let html = '';
+    for (const comp of comparisons) {
+      const maxDuration = Math.max(...comp.racers.filter(r => r !== null).map(r => r.duration));
 
-  // Generate results rows
-  const resultsRows = comparisons.map(comp => {
-    const durationCells = racers.map((racer, i) => {
-      const duration = comp.racers[i] ? `${comp.racers[i].duration.toFixed(3)}s` : '-';
-      const winClass = comp.winner === racer ? ' class="winner"' : '';
-      return `<td${winClass}>${duration}</td>`;
-    }).join('');
-    const winner = comp.winner || '-';
-    const diff = comp.diffPercent !== null ? `${comp.diffPercent.toFixed(1)}%` : '-';
-    const winnerClass = comp.winner ? ' class="winner-col"' : '';
-    return `<tr><td>${comp.name}</td>${durationCells}<td${winnerClass}>${winner}</td><td>${diff}</td></tr>`;
-  }).join('\n        ');
+      // Sort racers by duration ascending (best/fastest first), nulls last
+      const sorted = racers
+        .map((name, i) => ({ name, index: i, racer: comp.racers[i] }))
+        .sort((a, b) => {
+          if (!a.racer) return 1;
+          if (!b.racer) return -1;
+          return a.racer.duration - b.racer.duration;
+        });
+      const bestDuration = sorted[0].racer ? sorted[0].racer.duration : null;
+
+      html += `<div class="profile-metric">
+        <div class="profile-metric-name">${comp.name}</div>`;
+
+      for (const entry of sorted) {
+        const color = RACER_CSS_COLORS[entry.index % RACER_CSS_COLORS.length];
+        const duration = entry.racer ? entry.racer.duration : null;
+        const formatted = duration !== null ? `${duration.toFixed(3)}s` : '-';
+        const isWinner = comp.winner === entry.name;
+        const barPct = duration !== null && maxDuration > 0
+          ? Math.round((duration / maxDuration) * 100)
+          : 0;
+
+        let delta = '';
+        if (duration !== null && bestDuration !== null && duration !== bestDuration) {
+          const deltaVal = duration - bestDuration;
+          delta = `<span class="profile-delta">(+${deltaVal.toFixed(3)}s)</span>`;
+        }
+
+        html += `
+        <div class="profile-row">
+          <span class="profile-racer" style="color: ${color}">${entry.name}</span>
+          <span class="profile-bar-track">
+            <span class="profile-bar-fill" style="width: ${barPct}%; background: ${color}"></span>
+          </span>
+          <span class="profile-value">${formatted}${delta}</span>
+          ${isWinner ? '<span class="profile-medal">&#127942;</span>' : ''}
+        </div>`;
+      }
+      html += `</div>\n`;
+    }
+    return html;
+  })() : '';
 
   const winnerBanner = overallWinner === 'tie'
     ? `<span class="trophy">&#129309;</span> It's a Tie!`
@@ -368,12 +400,12 @@ export function buildPlayerHtml(summary, videoFiles, altFormat, altFiles, option
     cursor: pointer;
     flex-shrink: 0;
   }
-  .results-table, .downloads {
+  .downloads {
     max-width: 900px;
     width: 100%;
     padding: 0.5rem 1.5rem 1rem;
   }
-  .results-table h2, .downloads h2 {
+  .downloads h2 {
     font-family: Georgia, serif;
     color: #d4af37;
     font-size: 1.1rem;
@@ -381,24 +413,6 @@ export function buildPlayerHtml(summary, videoFiles, altFormat, altFiles, option
     text-transform: uppercase;
     letter-spacing: 0.1em;
   }
-  table {
-    width: 100%;
-    border-collapse: collapse;
-    font-size: 0.85rem;
-  }
-  th {
-    background: #2a2a2a;
-    color: #d4af37;
-    padding: 0.5rem;
-    text-align: left;
-    border-bottom: 2px solid #d4af37;
-  }
-  td {
-    padding: 0.4rem 0.5rem;
-    border-bottom: 1px solid #333;
-  }
-  td.winner { color: #4ecdc4; font-weight: bold; }
-  td.winner-col { color: #d4af37; }
 
   .download-links {
     display: flex;
@@ -536,16 +550,9 @@ ${mergedVideoElement}
   </select>
 </div>
 
-<div class="results-table">
+<div class="profile-analysis">
   <h2>Results</h2>
-  <table>
-    <thead>
-      <tr>${tableHeader}</tr>
-    </thead>
-    <tbody>
-        ${resultsRows}
-    </tbody>
-  </table>
+${resultsHtml}
 </div>
 
 ${profileHtml}

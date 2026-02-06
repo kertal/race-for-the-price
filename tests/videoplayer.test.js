@@ -28,11 +28,12 @@ describe('buildPlayerHtml', () => {
     expect(html).toContain('src="hunt/hunt.race.webm"');
   });
 
-  it('includes results table with measurement data', () => {
+  it('includes results with measurement data and deltas', () => {
     const html = buildPlayerHtml(makeSummary(), videoFiles);
     expect(html).toContain('1.000s');
     expect(html).toContain('2.000s');
-    expect(html).toContain('100.0%');
+    expect(html).toContain('(+1.000s)');
+    expect(html).toContain('profile-bar-fill');
   });
 
   it('shows winner banner', () => {
@@ -82,7 +83,7 @@ describe('buildPlayerHtml', () => {
   it('handles empty comparisons', () => {
     const html = buildPlayerHtml(makeSummary({ comparisons: [] }), videoFiles);
     expect(html).toContain('<!DOCTYPE html>');
-    expect(html).toContain('<tbody>');
+    expect(html).toContain('Results');
   });
 
   it('supports 3 racers', () => {
@@ -98,9 +99,9 @@ describe('buildPlayerHtml', () => {
     expect(html).toContain('src="alpha/alpha.race.webm"');
     expect(html).toContain('src="beta/beta.race.webm"');
     expect(html).toContain('src="gamma/gamma.race.webm"');
-    expect(html).toContain('<th>alpha</th>');
-    expect(html).toContain('<th>beta</th>');
-    expect(html).toContain('<th>gamma</th>');
+    expect(html).toContain('>alpha<');
+    expect(html).toContain('>beta<');
+    expect(html).toContain('>gamma<');
     expect(html).toContain('const raceVideos = [v0, v1, v2]');
   });
 
@@ -222,13 +223,15 @@ describe('buildPlayerHtml', () => {
     const profileComparison = buildProfileComparison(['lauda', 'hunt'], [metrics1, metrics2]);
     const html = buildPlayerHtml(makeSummary({ profileComparison }), videoFiles);
 
-    // hunt (1000) should appear before lauda (2000) in the sorted output
-    const huntPos = html.indexOf('class="profile-racer" style="color: #3498db">hunt');
-    const laudaPos = html.indexOf('class="profile-racer" style="color: #e74c3c">lauda');
+    // Within the profile section (after "Total Session"), hunt (1000) should appear before lauda (2000)
+    const profileStart = html.indexOf('Total Session');
+    const profileSection = html.slice(profileStart);
+    const huntPos = profileSection.indexOf('>hunt<');
+    const laudaPos = profileSection.indexOf('>lauda<');
     expect(huntPos).toBeLessThan(laudaPos);
 
-    // lauda should show a delta
-    expect(html).toContain('(+');
+    // lauda should show a delta in the profile section
+    expect(profileSection).toContain('(+');
   });
 
   it('shows profile with 3+ racers', () => {
