@@ -103,7 +103,7 @@ function buildRunNavHtml(runNav) {
 function buildRaceInfoHtml(summary) {
   const { racers, settings, timestamp } = summary;
   const rows = [];
-  if (timestamp) rows.push(`<tr><td>Date</td><td>${new Date(timestamp).toLocaleString()}</td></tr>`);
+  if (timestamp) rows.push(`<tr><td>Date</td><td>${escHtml(new Date(timestamp).toISOString())}</td></tr>`);
   racers.forEach((r, i) => rows.push(`<tr><td>Racer ${i + 1}</td><td>${escHtml(r)}</td></tr>`));
   if (settings) {
     const mode = settings.parallel === false ? 'sequential' : 'parallel';
@@ -194,28 +194,29 @@ function buildProfileHtml(profileComparison, racers) {
 }
 
 function buildFilesHtml(racers, videoFiles, options) {
-  const { fullVideoFiles, mergedVideoFile, traceFiles, altFormat, altFiles } = options;
+  const { fullVideoFiles, mergedVideoFile, traceFiles, altFormat, altFiles, placementOrder } = options;
   const links = [];
+  const order = placementOrder || racers.map((_, i) => i);
 
-  racers.forEach((r, i) => {
-    if (videoFiles[i]) links.push(`<a href="${escHtml(videoFiles[i])}">${escHtml(r)} (race)</a>`);
+  order.forEach(i => {
+    if (videoFiles[i]) links.push(`<a href="${escHtml(videoFiles[i])}">${escHtml(racers[i])} (race)</a>`);
   });
   if (fullVideoFiles) {
-    racers.forEach((r, i) => {
-      if (fullVideoFiles[i]) links.push(`<a href="${escHtml(fullVideoFiles[i])}">${escHtml(r)} (full)</a>`);
+    order.forEach(i => {
+      if (fullVideoFiles[i]) links.push(`<a href="${escHtml(fullVideoFiles[i])}">${escHtml(racers[i])} (full)</a>`);
     });
   }
   if (mergedVideoFile) {
     links.push(`<a href="${escHtml(mergedVideoFile)}">side-by-side</a>`);
   }
   if (altFormat && altFiles) {
-    racers.forEach((r, i) => {
-      if (altFiles[i]) links.push(`<a href="${escHtml(altFiles[i])}" download>${escHtml(r)} (.${escHtml(altFormat)})</a>`);
+    order.forEach(i => {
+      if (altFiles[i]) links.push(`<a href="${escHtml(altFiles[i])}" download>${escHtml(racers[i])} (.${escHtml(altFormat)})</a>`);
     });
   }
   if (traceFiles) {
-    racers.forEach((r, i) => {
-      if (traceFiles[i]) links.push(`<a href="${escHtml(traceFiles[i])}" title="Open in chrome://tracing or ui.perfetto.dev">${escHtml(r)} (profile)</a>`);
+    order.forEach(i => {
+      if (traceFiles[i]) links.push(`<a href="${escHtml(traceFiles[i])}" title="Open in chrome://tracing or ui.perfetto.dev">${escHtml(racers[i])} (profile)</a>`);
     });
   }
 
@@ -516,7 +517,7 @@ export function buildPlayerHtml(summary, videoFiles, altFormat, altFiles, option
     results: buildResultsHtml(summary.comparisons || [], racers, summary.clickCounts),
     profile: buildProfileHtml(summary.profileComparison || null, racers),
     files: buildFilesHtml(racers, videoFiles, {
-      fullVideoFiles, mergedVideoFile, traceFiles, altFormat, altFiles,
+      fullVideoFiles, mergedVideoFile, traceFiles, altFormat, altFiles, placementOrder,
     }),
     scriptTag,
   });
