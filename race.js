@@ -156,7 +156,9 @@ const totalRuns = settings.runs || 1;
 
 // --- Build runner config ---
 
-const isParallel = settings.parallel ?? true;
+// Parallel mode is more spectacular (side-by-side race), but sequential is more
+// accurate since browsers don't compete for CPU/memory/network resources.
+const isParallel = settings.parallel ?? false;
 const executionMode = isParallel ? 'parallel' : 'sequential';
 const throttle = { network: settings.network || 'none', cpu: settings.cpuThrottle || 1 };
 
