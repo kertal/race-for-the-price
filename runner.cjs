@@ -823,7 +823,7 @@ function calculateWindowLayout(index, total) {
  * Launch one browser, run the race script, record video, collect results.
  * Called N times (once per racer) by runParallel or runSequential.
  */
-async function runBrowserRecording(config, barriers, isParallel, sharedState, browserIndex = 0, totalBrowsers = 2, throttle = null, profile = false, slowmo = 0, noOverlay = false) {
+async function runBrowserRecording(config, barriers, isParallel, sharedState, browserIndex = 0, totalBrowsers = 2, throttle = null, profile = false, slowmo = 0, noOverlay = false, noFfmpeg = false) {
   const { id, headless } = config;
   const outputDir = path.join(__dirname, 'recordings', id);
   let browser = null;
@@ -896,7 +896,8 @@ async function runBrowserRecording(config, barriers, isParallel, sharedState, br
     console.error(`[${id}] Context closed`);
 
     let fullVideoFile = null;
-    if (markerSegments.length > 0) {
+    let recordingSegments = markerSegments;
+    if (markerSegments.length > 0 && !noFfmpeg) {
       const videoFile = getMostRecentVideo(outputDir);
       if (videoFile) {
         const videoPath = path.join(outputDir, videoFile);
@@ -910,6 +911,8 @@ async function runBrowserRecording(config, barriers, isParallel, sharedState, br
         const res = extractSegments(videoPath, trimSegments, id);
         fullVideoFile = path.basename(res.fullPath);
       }
+    } else if (markerSegments.length > 0 && noFfmpeg) {
+      console.error(`[${id}] Skipping video trimming (--no-ffmpeg mode)`);
     }
 
     await browser.close();
@@ -925,6 +928,7 @@ async function runBrowserRecording(config, barriers, isParallel, sharedState, br
       clickEvents: adjustedClicks,
       measurements,
       profileMetrics,
+      recordingSegments: recordingSegments.length > 0 ? recordingSegments : null,
       error: null
     };
   } catch (e) {
@@ -949,13 +953,14 @@ async function runBrowserRecording(config, barriers, isParallel, sharedState, br
     clickEvents: [],
     measurements: [],
     profileMetrics: null,
+    recordingSegments: null,
     error: error ? error.message : null
   };
 }
 
 // --- Execution modes ---
 
-async function runParallel(browserConfigs, throttle, profile, slowmo, noOverlay) {
+async function runParallel(browserConfigs, throttle, profile, slowmo, noOverlay, noFfmpeg) {
   const count = browserConfigs.length;
   const sharedState = { hasError: false, errorMessage: null, finishOrder: [] };
   const barriers = {
@@ -965,7 +970,7 @@ async function runParallel(browserConfigs, throttle, profile, slowmo, noOverlay)
   };
 
   const promises = browserConfigs.map((config, i) =>
-    runBrowserRecording(config, barriers, true, sharedState, i, count, throttle, profile, slowmo, noOverlay)
+    runBrowserRecording(config, barriers, true, sharedState, i, count, throttle, profile, slowmo, noOverlay, noFfmpeg)
   );
 
   const results = await Promise.allSettled(promises);
@@ -976,11 +981,11 @@ async function runParallel(browserConfigs, throttle, profile, slowmo, noOverlay)
   });
 }
 
-async function runSequential(browserConfigs, throttle, profile, slowmo, noOverlay) {
+async function runSequential(browserConfigs, throttle, profile, slowmo, noOverlay, noFfmpeg) {
   const sharedState = { hasError: false, errorMessage: null, finishOrder: [] };
   const results = [];
   for (let i = 0; i < browserConfigs.length; i++) {
-    const result = await runBrowserRecording(browserConfigs[i], null, false, sharedState, i, browserConfigs.length, throttle, profile, slowmo, noOverlay);
+    const result = await runBrowserRecording(browserConfigs[i], null, false, sharedState, i, browserConfigs.length, throttle, profile, slowmo, noOverlay, noFfmpeg);
     results.push(result);
   }
   return results;
@@ -999,7 +1004,7 @@ async function main() {
   try { config = JSON.parse(configJson); }
   catch (e) { console.error('Error: Invalid JSON:', e.message); process.exit(1); }
 
-  const { browsers, executionMode, throttle, headless, profile, slowmo, noOverlay } = config;
+  const { browsers, executionMode, throttle, headless, profile, slowmo, noOverlay, noFfmpeg } = config;
 
   // Set headless flag on all browser configs
   for (const browser of browsers) {
@@ -1011,8 +1016,8 @@ async function main() {
   let results;
   try {
     results = executionMode === 'parallel'
-      ? await runParallel(browsers, throttle, profile, slowmo, noOverlay)
-      : await runSequential(browsers, throttle, profile, slowmo, noOverlay);
+      ? await runParallel(browsers, throttle, profile, slowmo, noOverlay, noFfmpeg)
+      : await runSequential(browsers, throttle, profile, slowmo, noOverlay, noFfmpeg);
   } catch (error) {
     results = browsers.map(b => ({ id: b.id, videoPath: null, error: error.message }));
   }
@@ -1029,6 +1034,7 @@ async function main() {
       clickEvents: r.clickEvents || [],
       measurements: r.measurements || [],
       profileMetrics: r.profileMetrics || null,
+      recordingSegments: r.recordingSegments || null,
       error: r.error || null
     })),
     errors: errors.length > 0 ? errors : undefined

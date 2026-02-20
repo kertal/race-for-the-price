@@ -263,13 +263,14 @@ ${mergedVideoElement}
 // ---------------------------------------------------------------------------
 
 function buildPlayerScript(config) {
-  const { videoVars, videoArray, raceVideoPaths, fullVideoPaths } = config;
+  const { videoVars, videoArray, raceVideoPaths, fullVideoPaths, clipTimesJson } = config;
   return `<script>
 (function() {
   ${videoVars}
   const raceVideos = ${videoArray};
   const raceVideoPaths = ${raceVideoPaths};
   const fullVideoPaths = ${fullVideoPaths};
+  const clipTimes = ${clipTimesJson};
   const mergedVideo = document.getElementById('mergedVideo');
   const playerContainer = document.getElementById('playerContainer');
   const mergedContainer = document.getElementById('mergedContainer');
@@ -284,6 +285,7 @@ function buildPlayerScript(config) {
 
   let playing = false;
   let duration = 0;
+  let activeClip = null; // { start, end } when clipping is active
   const FPS = 30;
   const FRAME = 1 / FPS;
 
@@ -298,10 +300,20 @@ function buildPlayerScript(config) {
     return Math.floor(t * FPS);
   }
 
+  function clipOffset() {
+    return activeClip ? activeClip.start : 0;
+  }
+
+  function clipDuration() {
+    return activeClip ? (activeClip.end - activeClip.start) : duration;
+  }
+
   function updateTimeDisplay() {
-    const t = primary.currentTime || 0;
-    timeDisplay.textContent = fmt(t) + ' / ' + fmt(duration);
-    frameDisplay.textContent = 'Frame: ' + getFrame(t);
+    const raw = primary.currentTime || 0;
+    const t = raw - clipOffset();
+    const d = clipDuration();
+    timeDisplay.textContent = fmt(Math.max(0, t)) + ' / ' + fmt(d);
+    frameDisplay.textContent = 'Frame: ' + getFrame(Math.max(0, t));
   }
 
   function seekAll(t) {
@@ -323,8 +335,17 @@ function buildPlayerScript(config) {
         playBtn.textContent = '\\u25B6';
       });
       primary.addEventListener('timeupdate', function() {
+        // Enforce clip end boundary
+        if (activeClip && primary.currentTime >= activeClip.end) {
+          videos.forEach(v => v && v.pause());
+          seekAll(activeClip.end);
+          playing = false;
+          playBtn.textContent = '\\u25B6';
+        }
         if (duration > 0) {
-          scrubber.value = (primary.currentTime / duration) * 1000;
+          const t = primary.currentTime - clipOffset();
+          const d = clipDuration();
+          scrubber.value = d > 0 ? (Math.max(0, t) / d) * 1000 : 0;
           updateTimeDisplay();
         }
       });
@@ -342,6 +363,15 @@ function buildPlayerScript(config) {
     btn && btn.classList.add('active');
   }
 
+  function resolveClip() {
+    // Find the effective clip from clipTimes (use the first non-null entry)
+    if (!clipTimes) return null;
+    for (let i = 0; i < clipTimes.length; i++) {
+      if (clipTimes[i]) return clipTimes[i];
+    }
+    return null;
+  }
+
   function switchToRace() {
     if (playing) { videos.forEach(v => v && v.pause()); playing = false; playBtn.textContent = '\\u25B6'; }
     raceVideos.forEach((v, i) => v.src = raceVideoPaths[i]);
@@ -350,19 +380,25 @@ function buildPlayerScript(config) {
     playerContainer.style.display = 'flex';
     if (mergedContainer) mergedContainer.style.display = 'none';
     setActiveMode(modeRace);
+    activeClip = resolveClip();
     duration = 0;
     onMeta();
+    if (activeClip) seekAll(activeClip.start);
   }
 
   function switchToFull() {
-    if (!fullVideoPaths) return;
+    if (!fullVideoPaths && !clipTimes) return;
     if (playing) { videos.forEach(v => v && v.pause()); playing = false; playBtn.textContent = '\\u25B6'; }
-    raceVideos.forEach((v, i) => v.src = fullVideoPaths[i]);
+    if (fullVideoPaths) {
+      raceVideos.forEach((v, i) => v.src = fullVideoPaths[i]);
+    }
+    // If clipTimes mode (no-ffmpeg), same src already loaded — just remove clip constraint
     videos = raceVideos;
     primary = videos[0];
     playerContainer.style.display = 'flex';
     if (mergedContainer) mergedContainer.style.display = 'none';
     setActiveMode(modeFull);
+    activeClip = null;
     duration = 0;
     onMeta();
   }
@@ -375,6 +411,7 @@ function buildPlayerScript(config) {
     playerContainer.style.display = 'none';
     mergedContainer.style.display = 'block';
     setActiveMode(modeMerged);
+    activeClip = null;
     duration = mergedVideo.duration || 0;
     onMeta();
   }
@@ -394,6 +431,10 @@ function buildPlayerScript(config) {
       videos.forEach(v => v && v.pause());
       playBtn.textContent = '\\u25B6';
     } else {
+      // If at clip end, restart from clip start
+      if (activeClip && primary.currentTime >= activeClip.end - FRAME) {
+        seekAll(activeClip.start);
+      }
       videos.forEach(v => v && v.play());
       playBtn.textContent = '\\u23F8';
     }
@@ -401,7 +442,8 @@ function buildPlayerScript(config) {
   });
 
   scrubber.addEventListener('input', function() {
-    const t = (scrubber.value / 1000) * duration;
+    const d = clipDuration();
+    const t = (scrubber.value / 1000) * d + clipOffset();
     seekAll(t);
   });
 
@@ -412,7 +454,9 @@ function buildPlayerScript(config) {
 
   function stepFrame(delta) {
     if (playing) { videos.forEach(v => v && v.pause()); playing = false; playBtn.textContent = '\\u25B6'; }
-    const t = Math.max(0, Math.min(duration, primary.currentTime + delta));
+    const minT = clipOffset();
+    const maxT = activeClip ? activeClip.end : duration;
+    const t = Math.max(minT, Math.min(maxT, primary.currentTime + delta));
     seekAll(t);
   }
 
@@ -425,6 +469,19 @@ function buildPlayerScript(config) {
     else if (e.key === 'ArrowRight') { e.preventDefault(); stepFrame(FRAME); }
     else if (e.key === ' ') { e.preventDefault(); playBtn.click(); }
   });
+
+  // If clip times are active on initial load, seek to clip start
+  if (clipTimes) {
+    activeClip = resolveClip();
+    if (activeClip) {
+      var initSeek = function() {
+        seekAll(activeClip.start);
+        updateTimeDisplay();
+      };
+      if (primary.readyState >= 1) initSeek();
+      else primary.addEventListener('loadedmetadata', initSeek);
+    }
+  }
 })();
 </script>`;
 }
@@ -434,7 +491,7 @@ function buildPlayerScript(config) {
 // ---------------------------------------------------------------------------
 
 export function buildPlayerHtml(summary, videoFiles, altFormat, altFiles, options = {}) {
-  const { fullVideoFiles, mergedVideoFile, traceFiles, runNavigation, medianRunLabel } = options;
+  const { fullVideoFiles, mergedVideoFile, traceFiles, runNavigation, medianRunLabel, clipTimes } = options;
   const racers = summary.racers;
   const count = racers.length;
 
@@ -483,6 +540,9 @@ export function buildPlayerHtml(summary, videoFiles, altFormat, altFiles, option
     const orderedVideoFiles = placementOrder.map(i => videoFiles[i]);
     const orderedFullVideoFiles = fullVideoFiles ? placementOrder.map(i => fullVideoFiles[i]) : null;
 
+    // Order clip times to match placement order
+    const orderedClipTimes = clipTimes ? placementOrder.map(i => clipTimes[i] || null) : null;
+
     scriptTag = buildPlayerScript({
       videoVars: videoIds.map(id => `const ${id} = document.getElementById('${id}');`).join('\n  '),
       videoArray: `[${videoIds.join(', ')}]`,
@@ -490,16 +550,21 @@ export function buildPlayerHtml(summary, videoFiles, altFormat, altFiles, option
       fullVideoPaths: orderedFullVideoFiles
         ? JSON.stringify(orderedFullVideoFiles)
         : 'null',
+      clipTimesJson: orderedClipTimes
+        ? JSON.stringify(orderedClipTimes)
+        : 'null',
     });
   }
 
-  // Mode toggle
+  // Mode toggle — show Full button when separate full videos exist OR when clip times
+  // provide virtual trimming (no-ffmpeg mode, same file but different playback range)
   const hasFullVideos = fullVideoFiles && fullVideoFiles.length > 0;
+  const hasClipTimes = clipTimes && clipTimes.some(c => c !== null);
   const hasMergedVideo = !!mergedVideoFile;
-  const modeToggle = (hasFullVideos || hasMergedVideo) ? `
+  const modeToggle = (hasFullVideos || hasClipTimes || hasMergedVideo) ? `
   <div class="mode-toggle">
     <button class="mode-btn active" id="modeRace" title="Race segments only">Race</button>
-    ${hasFullVideos ? '<button class="mode-btn" id="modeFull" title="Full recordings">Full</button>' : ''}
+    ${hasFullVideos || hasClipTimes ? '<button class="mode-btn" id="modeFull" title="Full recordings">Full</button>' : ''}
     ${hasMergedVideo ? '<button class="mode-btn" id="modeMerged" title="Side-by-side merged video">Merged</button>' : ''}
   </div>` : '';
 
