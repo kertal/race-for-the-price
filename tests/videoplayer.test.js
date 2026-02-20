@@ -457,6 +457,86 @@ describe('buildPlayerHtml click counts', () => {
   });
 });
 
+// --- Clip times (no-ffmpeg mode) ---
+
+describe('buildPlayerHtml clipTimes', () => {
+  const videoFiles = ['lauda/lauda.race.webm', 'hunt/hunt.race.webm'];
+
+  it('shows mode toggle with Full button when clipTimes provided', () => {
+    const html = buildPlayerHtml(makeSummary(), videoFiles, null, null, {
+      clipTimes: [{ start: 1.5, end: 3.0 }, { start: 1.5, end: 3.0 }],
+    });
+    expect(html).toContain('id="modeRace"');
+    expect(html).toContain('id="modeFull"');
+  });
+
+  it('embeds clipTimes data in player script', () => {
+    const clips = [{ start: 1.5, end: 3.0 }, { start: 1.2, end: 2.8 }];
+    const html = buildPlayerHtml(makeSummary(), videoFiles, null, null, {
+      clipTimes: clips,
+    });
+    expect(html).toContain('const clipTimes =');
+    expect(html).toContain('"start":');
+    expect(html).toContain('"end":');
+  });
+
+  it('sets clipTimes to null when not provided', () => {
+    const html = buildPlayerHtml(makeSummary(), videoFiles);
+    expect(html).toContain('const clipTimes = null');
+  });
+
+  it('handles clipTimes with null entries', () => {
+    const html = buildPlayerHtml(makeSummary(), videoFiles, null, null, {
+      clipTimes: [{ start: 1.0, end: 2.0 }, null],
+    });
+    expect(html).toContain('id="modeFull"');
+    expect(html).toContain('const clipTimes =');
+  });
+
+  it('hides Full button when all clipTimes entries are null', () => {
+    const html = buildPlayerHtml(makeSummary(), videoFiles, null, null, {
+      clipTimes: [null, null],
+    });
+    expect(html).not.toContain('id="modeFull"');
+  });
+
+  it('includes clip constraint logic in player script', () => {
+    const html = buildPlayerHtml(makeSummary(), videoFiles, null, null, {
+      clipTimes: [{ start: 1.0, end: 5.0 }, { start: 1.0, end: 5.0 }],
+    });
+    expect(html).toContain('activeClip');
+    expect(html).toContain('clipOffset');
+    expect(html).toContain('clipDuration');
+    expect(html).toContain('resolveClip');
+  });
+
+  it('orders clipTimes by placement (winner first)', () => {
+    const summary = makeSummary({
+      overallWinner: 'hunt',
+      comparisons: [
+        { name: 'Load', racers: [{ duration: 2.0 }, { duration: 1.0 }], winner: 'hunt', rankings: ['hunt', 'lauda'] },
+      ],
+    });
+    const clips = [{ start: 1.0, end: 3.0 }, { start: 0.5, end: 2.5 }];
+    const html = buildPlayerHtml(summary, videoFiles, null, null, {
+      clipTimes: clips,
+    });
+    // hunt (index 1, clip start 0.5) should be first in the ordered array
+    const clipMatch = html.match(/const clipTimes = (\[.*?\]);/);
+    expect(clipMatch).toBeTruthy();
+    const parsed = JSON.parse(clipMatch[1]);
+    expect(parsed[0].start).toBe(0.5); // hunt's clip first (winner)
+    expect(parsed[1].start).toBe(1.0); // lauda's clip second
+  });
+
+  it('does not show Merged button without mergedVideoFile', () => {
+    const html = buildPlayerHtml(makeSummary(), videoFiles, null, null, {
+      clipTimes: [{ start: 1.0, end: 3.0 }, { start: 1.0, end: 3.0 }],
+    });
+    expect(html).not.toContain('id="modeMerged"');
+  });
+});
+
 // --- Files section ---
 
 describe('buildPlayerHtml files section', () => {

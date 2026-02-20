@@ -293,11 +293,13 @@ async function runSingleRace(runDir, runNavigation = null) {
 
   const traceFiles = settings.profile ? racerNames.map(name => `${name}/${name}.trace.json`) : null;
 
-  // Collect clip times from recording segments for player-level trimming (no-ffmpeg mode)
+  // Collect clip times from recording segments for player-level trimming (no-ffmpeg mode).
+  // Uses only the first segment per racer — multiple non-contiguous segments are not
+  // supported in player-level trimming (FFmpeg mode concatenates them into one video).
   const clipTimes = noFfmpeg ? racerNames.map((_, i) => {
-    const segs = result.browsers[i].recordingSegments;
+    const segs = result.browsers?.[i]?.recordingSegments;
     if (!segs || segs.length === 0) return null;
-    return { start: segs[0].start, end: segs[segs.length - 1].end };
+    return { start: segs[0].start, end: segs[0].end };
   }) : null;
 
   const playerOptions = {
@@ -309,7 +311,7 @@ async function runSingleRace(runDir, runNavigation = null) {
   };
   fs.writeFileSync(path.join(runDir, 'index.html'), buildPlayerHtml(summary, videoFiles, !noFfmpeg && format !== 'webm' ? format : null, altFiles, playerOptions));
 
-  return { summary, sideBySidePath, sideBySideName };
+  return { summary, sideBySidePath, sideBySideName, clipTimes };
 }
 
 // --- Main ---
@@ -325,14 +327,16 @@ async function main() {
       fs.mkdirSync(resultsDir, { recursive: true });
       const summaries = [];
       const sideBySideNames = [];
+      const allClipTimes = [];
 
       for (let i = 0; i < totalRuns; i++) {
         console.error(`\n  ${c.bold}${c.cyan}── Run ${i + 1} of ${totalRuns} ──${c.reset}`);
         const runNav = { currentRun: i + 1, totalRuns, pathPrefix: '../' };
-        const { summary, sideBySidePath, sideBySideName } = await runSingleRace(path.join(resultsDir, String(i + 1)), runNav);
+        const { summary, sideBySidePath, sideBySideName, clipTimes: runClipTimes } = await runSingleRace(path.join(resultsDir, String(i + 1)), runNav);
         printSummary(summary);
         summaries.push(summary);
         sideBySideNames.push(sideBySidePath ? sideBySideName : null);
+        allClipTimes.push(runClipTimes);
       }
 
       const medianSummary = buildMedianSummary(summaries, resultsDir);
@@ -356,6 +360,7 @@ async function main() {
         mergedVideoFile: medianMergedFile,
         runNavigation: medianNav,
         medianRunLabel: `Run ${medianRunIdx + 1}`,
+        clipTimes: allClipTimes[medianRunIdx] || null,
       };
       fs.writeFileSync(
         path.join(resultsDir, 'index.html'),
