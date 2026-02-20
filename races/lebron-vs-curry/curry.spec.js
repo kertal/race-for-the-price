@@ -4,6 +4,71 @@
 
 await page.goto('https://en.wikipedia.org/wiki/Stephen_Curry', { waitUntil: 'load' });
 
+// Inject Web Audio API sound functions into the page
+await page.evaluate(() => {
+  const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  window.__raceAudio = audioCtx;
+
+  // Dribble sound — percussive thump like a basketball hitting the floor
+  window.__playDribble = () => {
+    const ctx = window.__raceAudio;
+    const now = ctx.currentTime;
+    // Oscillator: quick pitch drop 150Hz → 40Hz
+    const osc = ctx.createOscillator();
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(150, now);
+    osc.frequency.exponentialRampToValueAtTime(40, now + 0.15);
+    // Gain envelope: sharp attack, fast decay
+    const gain = ctx.createGain();
+    gain.gain.setValueAtTime(0.6, now);
+    gain.gain.exponentialRampToValueAtTime(0.01, now + 0.2);
+    // Low-pass filter for a rounder thump
+    const filter = ctx.createBiquadFilter();
+    filter.type = 'lowpass';
+    filter.frequency.setValueAtTime(300, now);
+    osc.connect(filter);
+    filter.connect(gain);
+    gain.connect(ctx.destination);
+    osc.start(now);
+    osc.stop(now + 0.25);
+  };
+
+  // Crowd roar — excited crowd noise when ball hits the net
+  window.__playCrowd = () => {
+    const ctx = window.__raceAudio;
+    const now = ctx.currentTime;
+    const duration = 2.5;
+    // White noise buffer
+    const bufferSize = ctx.sampleRate * duration;
+    const buffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
+    const data = buffer.getChannelData(0);
+    for (let i = 0; i < bufferSize; i++) data[i] = Math.random() * 2 - 1;
+    const noise = ctx.createBufferSource();
+    noise.buffer = buffer;
+    // Bandpass filter to shape noise into crowd-like frequencies
+    const bp = ctx.createBiquadFilter();
+    bp.type = 'bandpass';
+    bp.frequency.setValueAtTime(800, now);
+    bp.Q.setValueAtTime(0.8, now);
+    // Second filter for warmth
+    const lp = ctx.createBiquadFilter();
+    lp.type = 'lowpass';
+    lp.frequency.setValueAtTime(2500, now);
+    // Gain envelope: quick swell up, hold, then fade
+    const gain = ctx.createGain();
+    gain.gain.setValueAtTime(0.01, now);
+    gain.gain.linearRampToValueAtTime(0.5, now + 0.3);
+    gain.gain.setValueAtTime(0.5, now + 1.2);
+    gain.gain.exponentialRampToValueAtTime(0.01, now + duration);
+    noise.connect(bp);
+    bp.connect(lp);
+    lp.connect(gain);
+    gain.connect(ctx.destination);
+    noise.start(now);
+    noise.stop(now + duration);
+  };
+});
+
 // Scroll to a fixed absolute position (same for both racers so dribbles stay in sync)
 const fixedStart = 10000;
 await page.evaluate((y) => window.scrollTo(0, y), fixedStart);
@@ -24,6 +89,8 @@ for (let i = 0; i < 3; i++) {
     await page.waitForTimeout(Math.round(35 - 22 * t));
   }
 
+  // Ball hits the floor — play dribble sound
+  await page.evaluate(() => window.__playDribble());
   await page.waitForTimeout(60);
 
   const upDist = 800;
@@ -52,6 +119,8 @@ for (let s = 0; s < scrollSteps; s++) {
 await page.evaluate(() => window.scrollTo(0, 0));
 
 page.raceEnd('Dribble Race');
+// Ball hits the net — play crowd roar
 page.raceMessage('🏀 Splash! Nothing but net.');
-await page.waitForTimeout(1500);
+await page.evaluate(() => window.__playCrowd());
+await page.waitForTimeout(2500);
 await page.raceRecordingEnd();
