@@ -7,7 +7,8 @@
  * spawns the Playwright runner, collects results, and prints a report.
  *
  * Usage:
- *   node race.js ./races/my-race              Run a race
+ *   node race.js https://a.com https://b.com  Race page load times (URL mode)
+ *   node race.js ./races/my-race              Run a scripted race
  *   node race.js ./races/my-race --results    View recent results
  *   node race.js ./races/my-race --parallel   Run both browsers simultaneously
  *   node race.js ./races/my-race --headless   Run headless
@@ -20,7 +21,7 @@ import { spawn } from 'child_process';
 import { fileURLToPath } from 'url';
 import { RaceAnimation, startProgress } from './cli/animation.js';
 import { c, FORMAT_EXTENSIONS } from './cli/colors.js';
-import { parseArgs, discoverRacers, applyOverrides } from './cli/config.js';
+import { parseArgs, discoverRacers, applyOverrides, isUrl, deriveRacerName, buildDefaultRaceScript } from './cli/config.js';
 import { buildSummary, printSummary, buildMarkdownSummary, buildMedianSummary, buildMultiRunMarkdown, printRecentRaces, getPlacementOrder, findMedianRunIndex } from './cli/summary.js';
 import { createSideBySide } from './cli/sidebyside.js';
 import { moveResults, convertVideos } from './cli/results.js';
@@ -89,9 +90,16 @@ ${c.dim}  ───────────────────────�
 
      ${c.bold}$${c.reset} ${c.cyan}node race.js ./races/lauda-vs-hunt${c.reset}
 
+${c.bold}  Quick Race (URL mode):${c.reset}
+${c.dim}  ─────────────────────────────────────────────────────────────${c.reset}
+  Pass 2+ URLs directly to measure page load times head-to-head:
+
+     ${c.bold}$${c.reset} ${c.cyan}node race.js https://react.dev https://angular.dev${c.reset}
+
 ${c.bold}  Commands:${c.reset}
 ${c.dim}  ─────────────────────────────────────────────────────────────${c.reset}
-  node race.js ${c.cyan}<dir>${c.reset}                       Run a race
+  node race.js ${c.cyan}<url> <url> [url...]${c.reset}      Race page load times (2-5 URLs)
+  node race.js ${c.cyan}<dir>${c.reset}                       Run a scripted race
   node race.js ${c.cyan}<dir>${c.reset} ${c.yellow}--results${c.reset}            View recent results
   node race.js ${c.cyan}<dir>${c.reset} ${c.yellow}--parallel${c.reset}           Run both browsers simultaneously
   node race.js ${c.cyan}<dir>${c.reset} ${c.yellow}--headless${c.reset}           Hide browsers
@@ -103,46 +111,93 @@ ${c.dim}  ───────────────────────�
   node race.js ${c.cyan}<dir>${c.reset} ${c.yellow}--profile${c.reset}            Capture Chrome performance traces
   node race.js ${c.cyan}<dir>${c.reset} ${c.yellow}--no-overlay${c.reset}         Record videos without overlays
 
-${c.dim}  CLI flags override settings.json values.${c.reset}
+${c.dim}  All flags work with both URL mode and directory mode.${c.reset}
 ${c.dim}  Try the example:  node race.js ./races/lauda-vs-hunt${c.reset}
 `);
   process.exit(1);
 }
 
-const raceDir = path.resolve(positional[0]);
+// --- Detect URL mode vs directory mode ---
 
-if (!fs.existsSync(raceDir)) {
-  console.error(`${c.red}Error: Race directory not found: ${raceDir}${c.reset}`);
+if (positional.length === 1 && isUrl(positional[0])) {
+  console.error(`${c.red}Error: URL mode requires at least 2 URLs to race against each other${c.reset}`);
+  console.error(`${c.dim}  Example: node race.js https://react.dev https://angular.dev${c.reset}`);
   process.exit(1);
 }
 
-if (boolFlags.has('results')) {
-  printRecentRaces(raceDir);
-  process.exit(0);
-}
+const urlMode = positional.length >= 2 && positional.every(p => isUrl(p));
+let raceDir, racerNames, scripts;
 
-// --- Discover racers ---
+if (urlMode) {
+  // URL mode: generate race scripts from URLs
+  const urls = positional.slice(0, 5);
+  if (urls.length > 5) {
+    console.error(`${c.yellow}Warning: Using first 5 URLs of ${positional.length} provided${c.reset}`);
+  }
+  racerNames = urls.map(u => deriveRacerName(u));
 
-const { racerFiles, racerNames } = discoverRacers(raceDir);
+  // Deduplicate names by appending index when needed
+  const seen = {};
+  racerNames = racerNames.map((name, i) => {
+    if (seen[name] !== undefined) {
+      seen[name]++;
+      return `${name}-${seen[name]}`;
+    }
+    seen[name] = 0;
+    // Check if this name appears later
+    for (let j = i + 1; j < racerNames.length; j++) {
+      if (racerNames[j] === name) {
+        seen[name] = 1;
+        return `${name}-0`;
+      }
+    }
+    return name;
+  });
 
-if (racerFiles.length < 2) {
-  console.error(`${c.red}Error: Need at least 2 .spec.js (or .js) script files in ${raceDir}, found ${racerFiles.length}${c.reset}`);
-  process.exit(1);
+  scripts = urls.map(u => buildDefaultRaceScript(u));
+  raceDir = path.resolve(racerNames.join('-vs-'));
+  fs.mkdirSync(raceDir, { recursive: true });
+} else {
+  // Directory mode: existing behavior
+  raceDir = path.resolve(positional[0]);
+
+  if (!fs.existsSync(raceDir)) {
+    console.error(`${c.red}Error: Race directory not found: ${raceDir}${c.reset}`);
+    process.exit(1);
+  }
+
+  if (boolFlags.has('results')) {
+    printRecentRaces(raceDir);
+    process.exit(0);
+  }
+
+  // --- Discover racers ---
+
+  const discovered = discoverRacers(raceDir);
+  racerNames = discovered.racerNames;
+  const racerFiles = discovered.racerFiles;
+
+  if (racerFiles.length < 2) {
+    console.error(`${c.red}Error: Need at least 2 .spec.js (or .js) script files in ${raceDir}, found ${racerFiles.length}${c.reset}`);
+    process.exit(1);
+  }
+  if (racerFiles.length > 5) {
+    console.error(`${c.yellow}Warning: Found ${racerFiles.length} script files, using first five: ${racerFiles.slice(0, 5).join(', ')}${c.reset}`);
+  }
+  scripts = racerFiles.map(f => fs.readFileSync(path.join(raceDir, f), 'utf-8'));
 }
-if (racerFiles.length > 5) {
-  console.error(`${c.yellow}Warning: Found ${racerFiles.length} script files, using first five: ${racerFiles.slice(0, 5).join(', ')}${c.reset}`);
-}
-const scripts = racerFiles.map(f => fs.readFileSync(path.join(raceDir, f), 'utf-8'));
 
 // --- Settings (settings.json, overridden by CLI flags) ---
 
 let settings = {};
-const settingsPath = path.join(raceDir, 'settings.json');
-if (fs.existsSync(settingsPath)) {
-  try {
-    settings = JSON.parse(fs.readFileSync(settingsPath, 'utf-8'));
-  } catch (e) {
-    console.error(`${c.yellow}Warning: Could not parse settings.json: ${e.message}${c.reset}`);
+if (!urlMode) {
+  const settingsPath = path.join(raceDir, 'settings.json');
+  if (fs.existsSync(settingsPath)) {
+    try {
+      settings = JSON.parse(fs.readFileSync(settingsPath, 'utf-8'));
+    } catch (e) {
+      console.error(`${c.yellow}Warning: Could not parse settings.json: ${e.message}${c.reset}`);
+    }
   }
 }
 
