@@ -760,13 +760,12 @@ function buildPlayerScript(config) {
     if (location.protocol === 'file:') {
       return Promise.reject(new Error('Conversion requires HTTP(S) — serve this file via a local server (e.g. npx serve)'));
     }
-    var coreBaseURL = 'https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.10/dist/esm';
-    return import('https://cdn.jsdelivr.net/npm/@ffmpeg/ffmpeg@0.12.15/dist/esm/index.js')
+    return import('./ffmpeg/index.js')
       .then(function(mod) {
         var ff = new mod.FFmpeg();
         return Promise.all([
-          toBlobURL(coreBaseURL + '/ffmpeg-core.js', 'text/javascript'),
-          toBlobURL(coreBaseURL + '/ffmpeg-core.wasm', 'application/wasm'),
+          toBlobURL('./ffmpeg/ffmpeg-core.js', 'text/javascript'),
+          toBlobURL('./ffmpeg/ffmpeg-core.wasm', 'application/wasm'),
         ]).then(function(urls) {
           return ff.load({ coreURL: urls[0], wasmURL: urls[1] });
         }).then(function() {
