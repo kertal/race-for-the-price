@@ -167,7 +167,7 @@ const runnerConfig = {
   executionMode,
   throttle,
   headless: settings.headless || false,
-  profile: settings.profile !== false,
+  profile: settings.profile || false,
   slowmo: settings.slowmo || 0,
   noOverlay: settings.noOverlay || false,
   ffmpeg: settings.ffmpeg || false,
@@ -184,7 +184,7 @@ function runRace() {
   if (throttle.network !== 'none') flags.push(`net:${throttle.network}`);
   if (throttle.cpu > 1) flags.push(`cpu:${throttle.cpu}x`);
   if (settings.slowmo) flags.push(`slowmo:${settings.slowmo}x`);
-  if (settings.profile === false) flags.push('no-profile');
+  if (settings.profile) flags.push('profile');
   if (settings.headless) flags.push('headless');
   if (settings.noOverlay) flags.push('no-overlay');
   if (settings.ffmpeg) flags.push('ffmpeg');

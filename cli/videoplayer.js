@@ -186,7 +186,7 @@ function buildProfileHtml(profileComparison, racers) {
         const formatDelta = metricDef.format;
         const desc = metricDef.description || '';
         html += `<div class="profile-metric">
-        <div class="profile-metric-name" ${desc ? `title="${escHtml(desc)}"` : ''}>${escHtml(comp.name)} ${desc ? '<span class="profile-info-icon">&#9432;</span>' : ''}</div>
+        <div class="profile-metric-name" ${desc ? `title="${escHtml(desc)}"` : ''}>${escHtml(comp.name)}${desc ? ' <span class="profile-info-icon">&#9432;</span>' : ''}</div>
         ${desc ? `<div class="profile-metric-desc">${escHtml(desc)}</div>` : ''}${buildMetricRowsHtml(sorted, comp.winner, formatDelta)}</div>\n`;
       }
     }
