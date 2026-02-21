@@ -176,11 +176,11 @@ describe('buildPlayerHtml', () => {
     expect(html).toContain('id="timeDisplay"');
   });
 
-  it('displays frame number', () => {
+  it('displays step time', () => {
     const html = buildPlayerHtml(makeSummary(), videoFiles);
-    expect(html).toContain('Frame: 0');
+    expect(html).toContain('0.0s');
     expect(html).toContain('id="frameDisplay"');
-    expect(html).toContain('getFrame');
+    expect(html).toContain('getTime');
   });
 
   it('shows mode toggle when full videos provided', () => {

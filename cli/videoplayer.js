@@ -242,13 +242,13 @@ ${mergedVideoElement}
 
 <div class="controls">
   <div class="controls-row">
-    <button class="frame-btn" id="prevFrame" title="Previous frame (\u2190)">\u25C0\u25C0</button>
+    <button class="frame-btn" id="prevFrame" title="-0.1s (\u2190)">\u25C0\u25C0</button>
     <button class="play-btn" id="playBtn">\u25B6</button>
-    <button class="frame-btn" id="nextFrame" title="Next frame (\u2192)">\u25B6\u25B6</button>
+    <button class="frame-btn" id="nextFrame" title="+0.1s (\u2192)">\u25B6\u25B6</button>
     <input type="range" class="scrubber" id="scrubber" min="0" max="1000" value="0">
   </div>
   <span class="time-display" id="timeDisplay">0:00.000 / 0:00.000</span>
-  <span class="frame-display" id="frameDisplay">Frame: 0</span>
+  <span class="frame-display" id="frameDisplay">0.0s</span>
   <select class="speed-select" id="speedSelect">
     <option value="0.25">0.25x</option>
     <option value="0.5">0.5x</option>
@@ -286,8 +286,7 @@ function buildPlayerScript(config) {
   let playing = false;
   let duration = 0;
   let activeClip = null; // { start, end } when clipping is active
-  const FPS = 30;
-  const FRAME = 1 / FPS;
+  const STEP = 0.1; // 100ms step — reliable even with dropped frames
 
   function fmt(s) {
     const m = Math.floor(s / 60);
@@ -296,8 +295,8 @@ function buildPlayerScript(config) {
     return m + ':' + String(sec).padStart(2, '0') + '.' + String(ms).padStart(3, '0');
   }
 
-  function getFrame(t) {
-    return Math.floor(t * FPS);
+  function getTime(t) {
+    return t.toFixed(1) + 's';
   }
 
   function clipOffset() {
@@ -313,7 +312,7 @@ function buildPlayerScript(config) {
     const t = raw - clipOffset();
     const d = clipDuration();
     timeDisplay.textContent = fmt(Math.max(0, t)) + ' / ' + fmt(d);
-    frameDisplay.textContent = 'Frame: ' + getFrame(Math.max(0, t));
+    frameDisplay.textContent = getTime(Math.max(0, t));
   }
 
   function seekAll(t) {
@@ -364,12 +363,17 @@ function buildPlayerScript(config) {
   }
 
   function resolveClip() {
-    // Find the effective clip from clipTimes (use the first non-null entry)
+    // Compute union range across all racers so the scrubber covers all recordings
     if (!clipTimes) return null;
+    let minStart = Infinity, maxEnd = -Infinity, found = false;
     for (let i = 0; i < clipTimes.length; i++) {
-      if (clipTimes[i]) return clipTimes[i];
+      if (clipTimes[i]) {
+        minStart = Math.min(minStart, clipTimes[i].start);
+        maxEnd = Math.max(maxEnd, clipTimes[i].end);
+        found = true;
+      }
     }
-    return null;
+    return found ? { start: minStart, end: maxEnd } : null;
   }
 
   function switchToRace() {
@@ -383,7 +387,8 @@ function buildPlayerScript(config) {
     activeClip = resolveClip();
     duration = 0;
     onMeta();
-    if (activeClip) seekAll(activeClip.start);
+    seekAll(activeClip ? activeClip.start : 0);
+    scrubber.value = 0;
   }
 
   function switchToFull() {
@@ -401,6 +406,8 @@ function buildPlayerScript(config) {
     activeClip = null;
     duration = 0;
     onMeta();
+    seekAll(0);
+    scrubber.value = 0;
   }
 
   function switchToMerged() {
@@ -432,7 +439,7 @@ function buildPlayerScript(config) {
       playBtn.textContent = '\\u25B6';
     } else {
       // If at clip end, restart from clip start
-      if (activeClip && primary.currentTime >= activeClip.end - FRAME) {
+      if (activeClip && primary.currentTime >= activeClip.end - STEP) {
         seekAll(activeClip.start);
       }
       videos.forEach(v => v && v.play());
@@ -460,13 +467,13 @@ function buildPlayerScript(config) {
     seekAll(t);
   }
 
-  document.getElementById('prevFrame').addEventListener('click', function() { stepFrame(-FRAME); });
-  document.getElementById('nextFrame').addEventListener('click', function() { stepFrame(FRAME); });
+  document.getElementById('prevFrame').addEventListener('click', function() { stepFrame(-STEP); });
+  document.getElementById('nextFrame').addEventListener('click', function() { stepFrame(STEP); });
 
   document.addEventListener('keydown', function(e) {
     if (e.target.tagName === 'SELECT') return;
-    if (e.key === 'ArrowLeft') { e.preventDefault(); stepFrame(-FRAME); }
-    else if (e.key === 'ArrowRight') { e.preventDefault(); stepFrame(FRAME); }
+    if (e.key === 'ArrowLeft') { e.preventDefault(); stepFrame(-STEP); }
+    else if (e.key === 'ArrowRight') { e.preventDefault(); stepFrame(STEP); }
     else if (e.key === ' ') { e.preventDefault(); playBtn.click(); }
   });
 
