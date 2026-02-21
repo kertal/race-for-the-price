@@ -17,7 +17,16 @@ const makeSummary = (overrides = {}) => ({
   ...overrides,
 });
 
+const huntWinsSummary = () => makeSummary({
+  overallWinner: 'hunt',
+  comparisons: [
+    { name: 'Load', racers: [{ duration: 2.0 }, { duration: 1.0 }], winner: 'hunt', rankings: ['hunt', 'lauda'] },
+  ],
+});
+
 const videoFiles = ['lauda/lauda.race.webm', 'hunt/hunt.race.webm'];
+const abVideoFiles = ['a/a.race.webm', 'b/b.race.webm'];
+const abSummary = (overrides = {}) => makeSummary({ racers: ['a', 'b'], comparisons: [], ...overrides });
 
 describe('buildPlayerHtml', () => {
   it('returns a complete HTML document', () => {
@@ -97,16 +106,13 @@ describe('buildPlayerHtml', () => {
   });
 
   it('supports 3 racers', () => {
-    const summary = {
+    const summary = makeSummary({
       racers: ['alpha', 'beta', 'gamma'],
       comparisons: [
         { name: 'Load', racers: [{ duration: 1.0 }, { duration: 1.5 }, { duration: 2.0 }], winner: 'alpha', diff: 1.0, diffPercent: 100.0 },
       ],
       overallWinner: 'alpha',
-      settings: {},
-      errors: [],
-      clickCounts: {},
-    };
+    });
     const videos = ['alpha/alpha.race.webm', 'beta/beta.race.webm', 'gamma/gamma.race.webm'];
     const html = buildPlayerHtml(summary, videos);
     expect(html).toContain('src="alpha/alpha.race.webm"');
@@ -119,14 +125,7 @@ describe('buildPlayerHtml', () => {
   });
 
   it('supports 4 racers', () => {
-    const summary = {
-      racers: ['a', 'b', 'c', 'd'],
-      comparisons: [],
-      overallWinner: null,
-      settings: {},
-      errors: [],
-      clickCounts: {},
-    };
+    const summary = makeSummary({ racers: ['a', 'b', 'c', 'd'], comparisons: [], overallWinner: null });
     const videos = ['a/a.race.webm', 'b/b.race.webm', 'c/c.race.webm', 'd/d.race.webm'];
     const html = buildPlayerHtml(summary, videos);
     expect(html).toContain('id="v0"');
@@ -137,14 +136,7 @@ describe('buildPlayerHtml', () => {
   });
 
   it('supports 5 racers with download links', () => {
-    const summary = {
-      racers: ['r1', 'r2', 'r3', 'r4', 'r5'],
-      comparisons: [],
-      overallWinner: 'r1',
-      settings: {},
-      errors: [],
-      clickCounts: {},
-    };
+    const summary = makeSummary({ racers: ['r1', 'r2', 'r3', 'r4', 'r5'], comparisons: [], overallWinner: 'r1' });
     const videos = ['r1/r1.webm', 'r2/r2.webm', 'r3/r3.webm', 'r4/r4.webm', 'r5/r5.webm'];
     const altFiles = ['r1/r1.gif', 'r2/r2.gif', 'r3/r3.gif', 'r4/r4.gif', 'r5/r5.gif'];
     const html = buildPlayerHtml(summary, videos, 'gif', altFiles);
@@ -155,14 +147,7 @@ describe('buildPlayerHtml', () => {
   });
 
   it('assigns correct colors to racer labels', () => {
-    const summary = {
-      racers: ['red', 'blue', 'green'],
-      comparisons: [],
-      overallWinner: null,
-      settings: {},
-      errors: [],
-      clickCounts: {},
-    };
+    const summary = makeSummary({ racers: ['red', 'blue', 'green'], comparisons: [], overallWinner: null });
     const videos = ['r/r.webm', 'b/b.webm', 'g/g.webm'];
     const html = buildPlayerHtml(summary, videos);
     expect(html).toContain('style="color: #e74c3c"');
@@ -264,7 +249,7 @@ describe('buildPlayerHtml', () => {
     ];
     const racers = ['angular', 'htmx', 'react'];
     const profileComparison = buildProfileComparison(racers, data);
-    const summary = { racers, comparisons: [], overallWinner: null, profileComparison, settings: {}, errors: [], clickCounts: {} };
+    const summary = makeSummary({ racers, comparisons: [], overallWinner: null, profileComparison });
     const videos = ['a/a.webm', 'h/h.webm', 'r/r.webm'];
     const html = buildPlayerHtml(summary, videos);
 
@@ -276,34 +261,21 @@ describe('buildPlayerHtml', () => {
   });
 
   it('shows winner video first when hunt wins', () => {
-    const summary = makeSummary({
-      overallWinner: 'hunt',
-      comparisons: [
-        { name: 'Load', racers: [{ duration: 2.0 }, { duration: 1.0 }], winner: 'hunt', rankings: ['hunt', 'lauda'] },
-      ],
-    });
-    const html = buildPlayerHtml(summary, videoFiles);
+    const html = buildPlayerHtml(huntWinsSummary(), videoFiles);
     const laudaPos = html.indexOf('src="lauda/lauda.race.webm"');
     const huntPos = html.indexOf('src="hunt/hunt.race.webm"');
     expect(huntPos).toBeLessThan(laudaPos);
   });
 
   it('shows winner video first with original colors preserved', () => {
-    const summary = makeSummary({
-      overallWinner: 'hunt',
-      comparisons: [
-        { name: 'Load', racers: [{ duration: 2.0 }, { duration: 1.0 }], winner: 'hunt', rankings: ['hunt', 'lauda'] },
-      ],
-    });
-    const html = buildPlayerHtml(summary, videoFiles);
+    const html = buildPlayerHtml(huntWinsSummary(), videoFiles);
     // hunt (index 1) should appear first but keep its blue color (#3498db)
     const huntLabelMatch = html.match(/color: (#[0-9a-f]+)">hunt/);
     expect(huntLabelMatch[1]).toBe('#3498db');
   });
 
   it('omits script tag when no videos provided', () => {
-    const summary = makeSummary();
-    const html = buildPlayerHtml(summary, [], null, null, {
+    const html = buildPlayerHtml(makeSummary(), [], null, null, {
       runNavigation: { currentRun: 'median', totalRuns: 3, pathPrefix: '' },
     });
     expect(html).not.toContain('<script>');
@@ -311,9 +283,8 @@ describe('buildPlayerHtml', () => {
   });
 
   it('shows median page with videos and source note', () => {
-    const summary = makeSummary();
     const medianVideos = ['2/lauda/lauda.race.webm', '2/hunt/hunt.race.webm'];
-    const html = buildPlayerHtml(summary, medianVideos, null, null, {
+    const html = buildPlayerHtml(makeSummary(), medianVideos, null, null, {
       runNavigation: { currentRun: 'median', totalRuns: 3, pathPrefix: '' },
       medianRunLabel: 'Run 2',
     });
@@ -323,8 +294,7 @@ describe('buildPlayerHtml', () => {
   });
 
   it('shows run navigation bar', () => {
-    const summary = makeSummary();
-    const html = buildPlayerHtml(summary, videoFiles, null, null, {
+    const html = buildPlayerHtml(makeSummary(), videoFiles, null, null, {
       runNavigation: { currentRun: 1, totalRuns: 3, pathPrefix: '../' },
     });
     expect(html).toContain('Run 1');
@@ -338,19 +308,9 @@ describe('buildPlayerHtml', () => {
 // --- Race Info section ---
 
 describe('buildPlayerHtml race info', () => {
-  const videoFiles = ['a/a.webm', 'b/b.webm'];
-
   it('shows racer names in race info', () => {
-    const summary = {
-      racers: ['alpha', 'beta'],
-      comparisons: [],
-      overallWinner: null,
-      timestamp: '2025-06-01T10:00:00.000Z',
-      settings: {},
-      errors: [],
-      clickCounts: {},
-    };
-    const html = buildPlayerHtml(summary, videoFiles);
+    const summary = makeSummary({ racers: ['alpha', 'beta'], comparisons: [], timestamp: '2025-06-01T10:00:00.000Z' });
+    const html = buildPlayerHtml(summary, abVideoFiles);
     expect(html).toContain('race-info');
     expect(html).toContain('Racer 1');
     expect(html).toContain('alpha');
@@ -359,31 +319,15 @@ describe('buildPlayerHtml race info', () => {
   });
 
   it('shows mode, network, and CPU settings', () => {
-    const summary = {
-      racers: ['a', 'b'],
-      comparisons: [],
-      overallWinner: null,
-      timestamp: '2025-06-01T10:00:00.000Z',
-      settings: { parallel: false, network: 'slow-3g', cpuThrottle: 4 },
-      errors: [],
-      clickCounts: {},
-    };
-    const html = buildPlayerHtml(summary, videoFiles);
+    const summary = abSummary({ timestamp: '2025-06-01T10:00:00.000Z', settings: { parallel: false, network: 'slow-3g', cpuThrottle: 4 } });
+    const html = buildPlayerHtml(summary, abVideoFiles);
     expect(html).toContain('sequential');
     expect(html).toContain('slow-3g');
     expect(html).toContain('4x');
   });
 
   it('defaults mode to parallel', () => {
-    const summary = {
-      racers: ['a', 'b'],
-      comparisons: [],
-      overallWinner: null,
-      settings: {},
-      errors: [],
-      clickCounts: {},
-    };
-    const html = buildPlayerHtml(summary, videoFiles);
+    const html = buildPlayerHtml(abSummary(), abVideoFiles);
     expect(html).toContain('parallel');
   });
 });
@@ -391,33 +335,15 @@ describe('buildPlayerHtml race info', () => {
 // --- Errors section ---
 
 describe('buildPlayerHtml errors', () => {
-  const videoFiles = ['a/a.webm', 'b/b.webm'];
-
   it('shows errors when present', () => {
-    const summary = {
-      racers: ['a', 'b'],
-      comparisons: [],
-      overallWinner: null,
-      settings: {},
-      errors: ['a: timeout', 'b: crash'],
-      clickCounts: {},
-    };
-    const html = buildPlayerHtml(summary, videoFiles);
+    const html = buildPlayerHtml(abSummary({ errors: ['a: timeout', 'b: crash'] }), abVideoFiles);
     expect(html).toContain('errors');
     expect(html).toContain('a: timeout');
     expect(html).toContain('b: crash');
   });
 
   it('omits errors section when no errors', () => {
-    const summary = {
-      racers: ['a', 'b'],
-      comparisons: [],
-      overallWinner: null,
-      settings: {},
-      errors: [],
-      clickCounts: {},
-    };
-    const html = buildPlayerHtml(summary, videoFiles);
+    const html = buildPlayerHtml(abSummary(), abVideoFiles);
     // No errors div should be present
     expect(html).not.toContain('class="errors"');
   });
@@ -426,33 +352,15 @@ describe('buildPlayerHtml errors', () => {
 // --- Click counts in results ---
 
 describe('buildPlayerHtml click counts', () => {
-  const videoFiles = ['a/a.webm', 'b/b.webm'];
-
   it('shows click counts when present', () => {
-    const summary = {
-      racers: ['lauda', 'hunt'],
-      comparisons: [],
-      overallWinner: null,
-      settings: {},
-      errors: [],
-      clickCounts: { lauda: 5, hunt: 3 },
-    };
-    const html = buildPlayerHtml(summary, videoFiles);
+    const html = buildPlayerHtml(makeSummary({ comparisons: [], clickCounts: { lauda: 5, hunt: 3 } }), videoFiles);
     expect(html).toContain('Clicks');
     expect(html).toContain('>5<');
     expect(html).toContain('>3<');
   });
 
   it('omits clicks when all zero', () => {
-    const summary = {
-      racers: ['lauda', 'hunt'],
-      comparisons: [],
-      overallWinner: null,
-      settings: {},
-      errors: [],
-      clickCounts: { lauda: 0, hunt: 0 },
-    };
-    const html = buildPlayerHtml(summary, videoFiles);
+    const html = buildPlayerHtml(makeSummary({ comparisons: [] }), videoFiles);
     expect(html).not.toContain('Clicks');
   });
 });
@@ -460,21 +368,16 @@ describe('buildPlayerHtml click counts', () => {
 // --- Clip times (default mode, without --ffmpeg) ---
 
 describe('buildPlayerHtml clipTimes', () => {
-  const videoFiles = ['lauda/lauda.race.webm', 'hunt/hunt.race.webm'];
+  const withClips = (clips) => buildPlayerHtml(makeSummary(), videoFiles, null, null, { clipTimes: clips });
 
   it('shows mode toggle with Full button when clipTimes provided', () => {
-    const html = buildPlayerHtml(makeSummary(), videoFiles, null, null, {
-      clipTimes: [{ start: 1.5, end: 3.0 }, { start: 1.5, end: 3.0 }],
-    });
+    const html = withClips([{ start: 1.5, end: 3.0 }, { start: 1.5, end: 3.0 }]);
     expect(html).toContain('id="modeRace"');
     expect(html).toContain('id="modeFull"');
   });
 
   it('embeds clipTimes data in player script', () => {
-    const clips = [{ start: 1.5, end: 3.0 }, { start: 1.2, end: 2.8 }];
-    const html = buildPlayerHtml(makeSummary(), videoFiles, null, null, {
-      clipTimes: clips,
-    });
+    const html = withClips([{ start: 1.5, end: 3.0 }, { start: 1.2, end: 2.8 }]);
     expect(html).toContain('const clipTimes =');
     expect(html).toContain('"start":');
     expect(html).toContain('"end":');
@@ -486,24 +389,18 @@ describe('buildPlayerHtml clipTimes', () => {
   });
 
   it('handles clipTimes with null entries', () => {
-    const html = buildPlayerHtml(makeSummary(), videoFiles, null, null, {
-      clipTimes: [{ start: 1.0, end: 2.0 }, null],
-    });
+    const html = withClips([{ start: 1.0, end: 2.0 }, null]);
     expect(html).toContain('id="modeFull"');
     expect(html).toContain('const clipTimes =');
   });
 
   it('hides Full button when all clipTimes entries are null', () => {
-    const html = buildPlayerHtml(makeSummary(), videoFiles, null, null, {
-      clipTimes: [null, null],
-    });
+    const html = withClips([null, null]);
     expect(html).not.toContain('id="modeFull"');
   });
 
   it('includes clip constraint logic in player script', () => {
-    const html = buildPlayerHtml(makeSummary(), videoFiles, null, null, {
-      clipTimes: [{ start: 1.0, end: 5.0 }, { start: 1.0, end: 5.0 }],
-    });
+    const html = withClips([{ start: 1.0, end: 5.0 }, { start: 1.0, end: 5.0 }]);
     expect(html).toContain('activeClip');
     expect(html).toContain('clipOffset');
     expect(html).toContain('clipDuration');
@@ -511,16 +408,8 @@ describe('buildPlayerHtml clipTimes', () => {
   });
 
   it('orders clipTimes by placement (winner first)', () => {
-    const summary = makeSummary({
-      overallWinner: 'hunt',
-      comparisons: [
-        { name: 'Load', racers: [{ duration: 2.0 }, { duration: 1.0 }], winner: 'hunt', rankings: ['hunt', 'lauda'] },
-      ],
-    });
     const clips = [{ start: 1.0, end: 3.0 }, { start: 0.5, end: 2.5 }];
-    const html = buildPlayerHtml(summary, videoFiles, null, null, {
-      clipTimes: clips,
-    });
+    const html = buildPlayerHtml(huntWinsSummary(), videoFiles, null, null, { clipTimes: clips });
     // hunt (index 1, clip start 0.5) should be first in the ordered array
     const clipMatch = html.match(/const clipTimes = (\[.*?\]);/);
     expect(clipMatch).toBeTruthy();
@@ -530,9 +419,7 @@ describe('buildPlayerHtml clipTimes', () => {
   });
 
   it('does not show Merged button without mergedVideoFile', () => {
-    const html = buildPlayerHtml(makeSummary(), videoFiles, null, null, {
-      clipTimes: [{ start: 1.0, end: 3.0 }, { start: 1.0, end: 3.0 }],
-    });
+    const html = withClips([{ start: 1.0, end: 3.0 }, { start: 1.0, end: 3.0 }]);
     expect(html).not.toContain('id="modeMerged"');
   });
 });
@@ -540,78 +427,36 @@ describe('buildPlayerHtml clipTimes', () => {
 // --- Files section ---
 
 describe('buildPlayerHtml files section', () => {
-  const videoFiles = ['a/a.race.webm', 'b/b.race.webm'];
-
   it('includes race video links', () => {
-    const summary = {
-      racers: ['a', 'b'],
-      comparisons: [],
-      overallWinner: null,
-      settings: {},
-      errors: [],
-      clickCounts: {},
-    };
-    const html = buildPlayerHtml(summary, videoFiles);
+    const html = buildPlayerHtml(abSummary(), abVideoFiles);
     expect(html).toContain('Files');
     expect(html).toContain('href="a/a.race.webm"');
     expect(html).toContain('a (race)');
   });
 
   it('includes full video links', () => {
-    const summary = {
-      racers: ['a', 'b'],
-      comparisons: [],
-      overallWinner: null,
-      settings: {},
-      errors: [],
-      clickCounts: {},
-    };
     const fullVideos = ['a/a.full.webm', 'b/b.full.webm'];
-    const html = buildPlayerHtml(summary, videoFiles, null, null, { fullVideoFiles: fullVideos });
+    const html = buildPlayerHtml(abSummary(), abVideoFiles, null, null, { fullVideoFiles: fullVideos });
     expect(html).toContain('href="a/a.full.webm"');
     expect(html).toContain('a (full)');
   });
 
   it('includes side-by-side link', () => {
-    const summary = {
-      racers: ['a', 'b'],
-      comparisons: [],
-      overallWinner: null,
-      settings: {},
-      errors: [],
-      clickCounts: {},
-    };
-    const html = buildPlayerHtml(summary, videoFiles, null, null, { mergedVideoFile: 'a-vs-b.webm' });
+    const html = buildPlayerHtml(abSummary(), abVideoFiles, null, null, { mergedVideoFile: 'a-vs-b.webm' });
     expect(html).toContain('href="a-vs-b.webm"');
     expect(html).toContain('side-by-side');
   });
 
   it('includes profile trace links when provided', () => {
-    const summary = {
-      racers: ['a', 'b'],
-      comparisons: [],
-      overallWinner: null,
-      settings: {},
-      errors: [],
-      clickCounts: {},
-    };
     const traceFiles = ['a/a.trace.json', 'b/b.trace.json'];
-    const html = buildPlayerHtml(summary, videoFiles, null, null, { traceFiles });
+    const html = buildPlayerHtml(abSummary(), abVideoFiles, null, null, { traceFiles });
     expect(html).toContain('href="a/a.trace.json"');
     expect(html).toContain('a (profile)');
     expect(html).toContain('chrome://tracing');
   });
 
   it('omits trace links when not profiling', () => {
-    const summary = {
-      racers: ['a', 'b'],
-      comparisons: [],
-      overallWinner: null,
-      settings: {},
-      errors: [],
-      clickCounts: {},
-    };
-    const html = buildPlayerHtml(summary, videoFiles);
+    const html = buildPlayerHtml(abSummary(), abVideoFiles);
     expect(html).not.toContain('.trace.json');
   });
 });
@@ -619,11 +464,11 @@ describe('buildPlayerHtml files section', () => {
 // --- Debug mode ---
 
 describe('buildPlayerHtml debug mode', () => {
-  const videoFiles = ['lauda/lauda.race.webm', 'hunt/hunt.race.webm'];
   const clipTimes = [{ start: 1.52, end: 3.0 }, { start: 1.2, end: 2.8 }];
+  const debugHtml = () => buildPlayerHtml(makeSummary(), videoFiles, null, null, { clipTimes });
 
   it('shows Debug button when clipTimes provided', () => {
-    const html = buildPlayerHtml(makeSummary(), videoFiles, null, null, { clipTimes });
+    const html = debugHtml();
     expect(html).toContain('id="modeDebug"');
     expect(html).toContain('>Debug<');
   });
@@ -641,7 +486,7 @@ describe('buildPlayerHtml debug mode', () => {
   });
 
   it('renders debug panel with per-racer rows', () => {
-    const html = buildPlayerHtml(makeSummary(), videoFiles, null, null, { clipTimes });
+    const html = debugHtml();
     expect(html).toContain('id="debugPanel"');
     expect(html).toContain('DEBUG: Clip Start Calibration');
     expect(html).toContain('data-debug-idx="0"');
@@ -649,7 +494,7 @@ describe('buildPlayerHtml debug mode', () => {
   });
 
   it('debug panel has frame adjustment buttons', () => {
-    const html = buildPlayerHtml(makeSummary(), videoFiles, null, null, { clipTimes });
+    const html = debugHtml();
     expect(html).toContain('data-delta="-5"');
     expect(html).toContain('data-delta="-1"');
     expect(html).toContain('data-delta="1"');
@@ -657,7 +502,7 @@ describe('buildPlayerHtml debug mode', () => {
   });
 
   it('debug panel has Copy JSON and Reset All buttons', () => {
-    const html = buildPlayerHtml(makeSummary(), videoFiles, null, null, { clipTimes });
+    const html = debugHtml();
     expect(html).toContain('id="debugCopyJson"');
     expect(html).toContain('Copy JSON');
     expect(html).toContain('id="debugResetAll"');
@@ -665,12 +510,11 @@ describe('buildPlayerHtml debug mode', () => {
   });
 
   it('debug panel shows frame step info', () => {
-    const html = buildPlayerHtml(makeSummary(), videoFiles, null, null, { clipTimes });
-    expect(html).toContain('1 frame = 0.040s (25fps)');
+    expect(debugHtml()).toContain('1 frame = 0.040s (25fps)');
   });
 
   it('script includes debug functions', () => {
-    const html = buildPlayerHtml(makeSummary(), videoFiles, null, null, { clipTimes });
+    const html = debugHtml();
     expect(html).toContain('FRAME_STEP');
     expect(html).toContain('switchToDebug');
     expect(html).toContain('adjustDebugOffset');
@@ -680,30 +524,23 @@ describe('buildPlayerHtml debug mode', () => {
   });
 
   it('debug panel contains stats container', () => {
-    const html = buildPlayerHtml(makeSummary(), videoFiles, null, null, { clipTimes });
-    expect(html).toContain('id="debugStats"');
+    expect(debugHtml()).toContain('id="debugStats"');
   });
 
   it('debug stats section has VIDEO INFO header', () => {
-    const html = buildPlayerHtml(makeSummary(), videoFiles, null, null, { clipTimes });
+    const html = debugHtml();
     expect(html).toContain('VIDEO INFO');
     expect(html).toContain('debug-stats-header');
   });
 
   it('script includes updateDebugStats function', () => {
-    const html = buildPlayerHtml(makeSummary(), videoFiles, null, null, { clipTimes });
+    const html = debugHtml();
     expect(html).toContain('updateDebugStats');
     expect(html).toContain('getVideoPlaybackQuality');
   });
 
   it('debug rows ordered by placement (winner first)', () => {
-    const summary = makeSummary({
-      overallWinner: 'hunt',
-      comparisons: [
-        { name: 'Load', racers: [{ duration: 2.0 }, { duration: 1.0 }], winner: 'hunt', rankings: ['hunt', 'lauda'] },
-      ],
-    });
-    const html = buildPlayerHtml(summary, videoFiles, null, null, { clipTimes });
+    const html = buildPlayerHtml(huntWinsSummary(), videoFiles, null, null, { clipTimes });
     const panelStart = html.indexOf('id="debugPanel"');
     const panelSection = html.slice(panelStart);
     const huntPos = panelSection.indexOf('>hunt<');
@@ -715,8 +552,6 @@ describe('buildPlayerHtml debug mode', () => {
 // --- Export (client-side side-by-side stitching) ---
 
 describe('buildPlayerHtml export', () => {
-  const videoFiles = ['lauda/lauda.race.webm', 'hunt/hunt.race.webm'];
-
   it('renders Export button when videos exist', () => {
     const html = buildPlayerHtml(makeSummary(), videoFiles);
     expect(html).toContain('id="exportBtn"');
