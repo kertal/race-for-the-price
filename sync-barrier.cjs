@@ -34,6 +34,9 @@ class SyncBarrier {
 
     this.waiting++;
     if (this.waiting >= this.count) {
+      // Clean up polling intervals from all waiters before resolving
+      this.checkIntervals.forEach(clearInterval);
+      this.checkIntervals = [];
       this.resolvers.forEach(r => r({ aborted: false }));
       this.waiting = 0;
       this.resolvers = [];

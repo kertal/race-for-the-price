@@ -40,7 +40,8 @@ export const VIDEO_DEFAULTS = {
 export function codecArgs(format) {
   if (format === 'mov') return ['-c:v', 'libx264', '-pix_fmt', 'yuv420p'];
   if (format === 'gif') return [];  // GIF uses filter_complex pipelines instead
-  return ['-c:v', 'libvpx-vp9', '-crf', '30', '-b:v', '0'];
+  if (format === 'webm') return ['-c:v', 'libvpx-vp9', '-crf', '30', '-b:v', '0'];
+  return [];  // Unknown format — let ffmpeg infer from extension
 }
 
 // Visual cue detection thresholds for frame-accurate trimming

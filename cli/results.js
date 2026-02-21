@@ -73,11 +73,15 @@ export function compressGif(filePath) {
 
 /** Convert .webm videos to the requested format (mov/gif) via ffmpeg. */
 export function convertVideos(results, format) {
+  const ext = FORMAT_EXTENSIONS[format];
+  if (!ext) {
+    console.error(`${c.dim}Warning: Unknown format "${format}", skipping conversion${c.reset}`);
+    return;
+  }
   for (const r of results) {
     for (const key of ['videoPath', 'fullVideoPath']) {
       if (!r[key]) continue;
       const src = r[key];
-      const ext = FORMAT_EXTENSIONS[format] || FORMAT_EXTENSIONS.gif;
       const dest = src.replace(/\.webm$/, ext);
       try {
         const args = ['-y', '-i', src];

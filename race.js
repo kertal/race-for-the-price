@@ -317,15 +317,15 @@ settings = applyOverrides(settings, boolFlags, kvFlags);
 // --- Resolve settings defaults once (avoid repeated `|| false` everywhere) ---
 
 settings.parallel = settings.parallel ?? false;
-settings.headless = settings.headless || false;
-settings.profile = settings.profile || false;
-settings.noOverlay = settings.noOverlay || false;
-settings.ffmpeg = settings.ffmpeg || false;
-settings.format = settings.format || 'webm';
-settings.network = settings.network || 'none';
-settings.cpuThrottle = settings.cpuThrottle || 1;
-settings.slowmo = settings.slowmo || 0;
-settings.runs = settings.runs || 1;
+settings.headless = settings.headless ?? false;
+settings.profile = settings.profile ?? false;
+settings.noOverlay = settings.noOverlay ?? false;
+settings.ffmpeg = settings.ffmpeg ?? false;
+settings.format = settings.format ?? 'webm';
+settings.network = settings.network ?? 'none';
+settings.cpuThrottle = settings.cpuThrottle ?? 1;
+settings.slowmo = settings.slowmo ?? 0;
+settings.runs = settings.runs ?? 1;
 
 // --- Build race context ---
 

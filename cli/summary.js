@@ -10,6 +10,11 @@ import { determineOverallWinner } from './race-utils.js';
 
 // --- Helper functions to eliminate duplication ---
 
+/** Count wins per racer from comparisons. Returns { racerName: winCount, ... }. */
+function computeWins(racerNames, comparisons) {
+  return Object.fromEntries(racerNames.map(name => [name, comparisons.filter(x => x.winner === name).length]));
+}
+
 /**
  * Compute comparison stats for a single measurement across racers.
  * Returns { name, racers, winner, diff, diffPercent, rankings }.
@@ -101,7 +106,7 @@ export function buildSummary(racerNames, results, settings, resultsDir) {
     return computeComparison(name, vals, racerNames);
   });
 
-  const wins = Object.fromEntries(racerNames.map(name => [name, comparisons.filter(x => x.winner === name).length]));
+  const wins = computeWins(racerNames, comparisons);
   const overallWinner = determineOverallWinner(wins, racerNames, comparisons);
 
   return {
@@ -336,7 +341,7 @@ export function buildMedianSummary(summaries, resultsDir) {
     return computeComparison(name, vals, racers);
   });
 
-  const wins = Object.fromEntries(racers.map(name => [name, comparisons.filter(x => x.winner === name).length]));
+  const wins = computeWins(racers, comparisons);
   const overallWinner = determineOverallWinner(wins, racers, comparisons);
 
   return {
