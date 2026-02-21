@@ -5,7 +5,7 @@
 import fs from 'fs';
 import path from 'path';
 import { execFileSync } from 'child_process';
-import { c, FORMAT_EXTENSIONS, VIDEO_DEFAULTS } from './colors.js';
+import { c, FORMAT_EXTENSIONS, VIDEO_DEFAULTS, codecArgs } from './colors.js';
 
 /** Move recordings from the runner's temp dir to the results folder. */
 export function moveResults(recordingsBase, racerName, destDir, browserResult) {
@@ -81,8 +81,9 @@ export function convertVideos(results, format) {
       const dest = src.replace(/\.webm$/, ext);
       try {
         const args = ['-y', '-i', src];
-        if (format === 'mov') {
-          args.push('-c:v', 'libx264', '-pix_fmt', 'yuv420p');
+        const codec = codecArgs(format);
+        if (codec.length > 0) {
+          args.push(...codec);
         } else {
           // GIF optimization: fps, scale, palette generation with Bayer dithering
           const { scaleWidth2to3, gifFps, gifMaxColors, gifBayerScale } = VIDEO_DEFAULTS;
