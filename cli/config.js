@@ -46,6 +46,39 @@ export function discoverRacers(raceDir) {
   return { racerFiles, racerNames };
 }
 
+/**
+ * Check if a string looks like a URL (http:// or https://).
+ */
+export function isUrl(str) {
+  return /^https?:\/\//i.test(str);
+}
+
+/**
+ * Derive a short racer name from a URL.
+ * Uses the hostname, stripping "www." prefix.
+ */
+export function deriveRacerName(url) {
+  try {
+    const hostname = new URL(url).hostname.replace(/^www\./, '');
+    // Replace dots with hyphens for filesystem safety, but keep it readable
+    return hostname;
+  } catch {
+    // Fallback: use a sanitized version of the URL
+    return url.replace(/^https?:\/\//, '').replace(/[^a-zA-Z0-9.-]/g, '_').slice(0, 40);
+  }
+}
+
+/**
+ * Build a default race script that measures page load time for a URL.
+ * The script navigates to the URL and times the load event.
+ */
+export function buildDefaultRaceScript(url) {
+  return `await page.raceStart('Page Load');
+await page.goto(${JSON.stringify(url)}, { waitUntil: 'load' });
+page.raceEnd('Page Load');
+`;
+}
+
 const VALID_NETWORKS = ['none', 'slow-3g', 'fast-3g', '4g'];
 const VALID_FORMATS = ['webm', 'mov', 'gif'];
 
