@@ -476,3 +476,50 @@ describe('buildPlayerHtml export', () => {
     expect(buildPlayerHtml(makeSummary(), [])).not.toContain('id="exportBtn"');
   });
 });
+
+// --- Browser-based conversion (ffmpeg.wasm) ---
+
+describe('buildPlayerHtml ffmpeg.wasm conversion', () => {
+  it('includes convertWithFFmpeg function in player script', () => {
+    expect(defaultHtml).toContain('convertWithFFmpeg');
+  });
+
+  it('includes loadFFmpeg function with CDN URLs', () => {
+    expect(defaultHtml).toContain('loadFFmpeg');
+    expect(defaultHtml).toContain('cdn.jsdelivr.net/npm/@ffmpeg/ffmpeg');
+    expect(defaultHtml).toContain('cdn.jsdelivr.net/npm/@ffmpeg/core');
+  });
+
+  it('includes toBlobURL helper for CORS-safe loading', () => {
+    expect(defaultHtml).toContain('toBlobURL');
+  });
+
+  it('includes file:// protocol check with helpful error message', () => {
+    expect(defaultHtml).toContain("location.protocol === 'file:'");
+    expect(defaultHtml).toContain('npx serve');
+  });
+
+  it('renders Convert dropdown in controls', () => {
+    expect(defaultHtml).toContain('id="convertSelect"');
+    expect(defaultHtml).toContain('to GIF');
+    expect(defaultHtml).toContain('to MOV');
+  });
+
+  it('includes GIF conversion args with palette optimization', () => {
+    expect(defaultHtml).toContain('palettegen');
+    expect(defaultHtml).toContain('paletteuse=dither=bayer');
+  });
+
+  it('includes MOV conversion args with H.264', () => {
+    expect(defaultHtml).toContain('libx264');
+    expect(defaultHtml).toContain('yuv420p');
+  });
+
+  it('does not render Convert dropdown when no videos', () => {
+    expect(buildPlayerHtml(makeSummary(), [])).not.toContain('id="convertSelect"');
+  });
+
+  it('includes conversion progress UI CSS', () => {
+    expect(defaultHtml).toContain('export-convert-row');
+  });
+});

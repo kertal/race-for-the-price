@@ -301,6 +301,11 @@ ${debugPanelHtml || ''}
     <option value="2">2x</option>
   </select>
   <button class="export-btn" id="exportBtn" title="Export side-by-side video">Export</button>
+  <select class="speed-select" id="convertSelect" title="Convert current video to GIF or MOV (via ffmpeg.wasm)">
+    <option value="" disabled selected>Convert</option>
+    <option value="gif">to GIF</option>
+    <option value="mov">to MOV</option>
+  </select>
 </div>`;
 }
 
@@ -738,6 +743,99 @@ function buildPlayerScript(config) {
     }
   }
 
+  // --- Browser-based format conversion via ffmpeg.wasm ---
+  var ffmpegInstance = null;
+
+  function toBlobURL(url, mimeType) {
+    return fetch(url).then(function(resp) {
+      if (!resp.ok) throw new Error('Failed to fetch ' + url + ' (' + resp.status + ')');
+      return resp.blob();
+    }).then(function(data) {
+      return URL.createObjectURL(new Blob([data], { type: mimeType }));
+    });
+  }
+
+  function loadFFmpeg() {
+    if (ffmpegInstance) return Promise.resolve(ffmpegInstance);
+    if (location.protocol === 'file:') {
+      return Promise.reject(new Error('Conversion requires HTTP(S) — serve this file via a local server (e.g. npx serve)'));
+    }
+    var coreBaseURL = 'https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.10/dist/esm';
+    return import('https://cdn.jsdelivr.net/npm/@ffmpeg/ffmpeg@0.12.15/dist/esm/index.js')
+      .then(function(mod) {
+        var ff = new mod.FFmpeg();
+        return Promise.all([
+          toBlobURL(coreBaseURL + '/ffmpeg-core.js', 'text/javascript'),
+          toBlobURL(coreBaseURL + '/ffmpeg-core.wasm', 'application/wasm'),
+        ]).then(function(urls) {
+          return ff.load({ coreURL: urls[0], wasmURL: urls[1] });
+        }).then(function() {
+          ffmpegInstance = ff;
+          return ff;
+        });
+      });
+  }
+
+  function convertWithFFmpeg(blob, format, statusEl, progressFill, actionsEl, overlay, downloadName) {
+    var outFilename = (downloadName || 'race-side-by-side') + '.' + format;
+    var buttons = actionsEl.querySelectorAll('button');
+    buttons.forEach(function(b) { b.disabled = true; });
+    statusEl.textContent = 'Loading ffmpeg.wasm (~25 MB)...';
+    progressFill.style.width = '0%';
+
+    loadFFmpeg().then(function(ff) {
+      statusEl.textContent = 'Converting to ' + format.toUpperCase() + '...';
+      progressFill.style.width = '30%';
+
+      return blob.arrayBuffer().then(function(buf) {
+        return ff.writeFile('input.webm', new Uint8Array(buf));
+      }).then(function() {
+        var args;
+        if (format === 'gif') {
+          args = ['-i', 'input.webm', '-filter_complex',
+            'fps=10,scale=640:-2,split[s0][s1];[s0]palettegen=max_colors=128:stats_mode=diff[p];[s1][p]paletteuse=dither=bayer:bayer_scale=3',
+            'output.' + format];
+        } else {
+          // MOV with H.264
+          args = ['-i', 'input.webm', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', 'output.' + format];
+        }
+        progressFill.style.width = '50%';
+        return ff.exec(args);
+      }).then(function() {
+        progressFill.style.width = '90%';
+        return ff.readFile('output.' + format);
+      }).then(function(data) {
+        var mType = format === 'gif' ? 'image/gif' : 'video/quicktime';
+        var outBlob = new Blob([data], { type: mType });
+        var outUrl = URL.createObjectURL(outBlob);
+
+        statusEl.textContent = 'Conversion complete! (' + (outBlob.size / (1024 * 1024)).toFixed(1) + ' MB)';
+        progressFill.style.width = '100%';
+
+        var dlLink = document.createElement('a');
+        dlLink.href = outUrl;
+        dlLink.download = outFilename;
+        dlLink.textContent = 'Download ' + format.toUpperCase();
+        dlLink.className = '';
+
+        var closeBtn = document.createElement('button');
+        closeBtn.textContent = 'Close';
+        closeBtn.addEventListener('click', function() { URL.revokeObjectURL(outUrl); overlay.remove(); });
+
+        actionsEl.innerHTML = '';
+        actionsEl.appendChild(dlLink);
+        actionsEl.appendChild(closeBtn);
+
+        // Clean up ffmpeg files
+        ff.deleteFile('input.webm').catch(function() {});
+        ff.deleteFile('output.' + format).catch(function() {});
+      });
+    }).catch(function(err) {
+      statusEl.textContent = 'Conversion failed: ' + err.message;
+      buttons.forEach(function(b) { b.disabled = false; });
+    });
+  }
+
   function startExport() {
     if (!HTMLCanvasElement.prototype.captureStream || !window.MediaRecorder) {
       alert('Export requires a browser that supports Canvas.captureStream and MediaRecorder (Chrome, Firefox, or Edge).');
@@ -820,13 +918,26 @@ function buildPlayerScript(config) {
         var downloadLink = document.createElement('a');
         downloadLink.href = url;
         downloadLink.download = 'race-side-by-side.webm';
-        downloadLink.textContent = 'Download';
+        downloadLink.textContent = 'Download WebM';
         downloadLink.className = '';
         var closeBtn = document.createElement('button');
         closeBtn.textContent = 'Close';
         closeBtn.addEventListener('click', function() { URL.revokeObjectURL(url); overlay.remove(); });
         actionsEl.innerHTML = '';
         actionsEl.appendChild(downloadLink);
+
+        // Browser-based conversion via ffmpeg.wasm
+        var convertRow = document.createElement('div');
+        convertRow.className = 'export-convert-row';
+        var gifBtn = document.createElement('button');
+        gifBtn.textContent = 'Convert to GIF';
+        gifBtn.addEventListener('click', function() { convertWithFFmpeg(blob, 'gif', statusEl, progressFill, actionsEl, overlay); });
+        var movBtn = document.createElement('button');
+        movBtn.textContent = 'Convert to MOV';
+        movBtn.addEventListener('click', function() { convertWithFFmpeg(blob, 'mov', statusEl, progressFill, actionsEl, overlay); });
+        convertRow.appendChild(gifBtn);
+        convertRow.appendChild(movBtn);
+        actionsEl.appendChild(convertRow);
         actionsEl.appendChild(closeBtn);
       };
 
@@ -860,6 +971,60 @@ function buildPlayerScript(config) {
     // Hide export button for single video or merged-only mode
     if (raceVideos.length < 2) exportBtn.style.display = 'none';
     exportBtn.addEventListener('click', startExport);
+  }
+
+  // --- Convert current video(s) to GIF or MOV via ffmpeg.wasm ---
+  var convertSelect = document.getElementById('convertSelect');
+  if (convertSelect) {
+    convertSelect.addEventListener('change', function() {
+      var format = convertSelect.value;
+      if (!format) return;
+      convertSelect.selectedIndex = 0; // reset to "Convert" label
+
+      // Get the currently visible video source(s)
+      var activeVideo = primary;
+      if (!activeVideo || !activeVideo.src) {
+        alert('No video loaded to convert.');
+        return;
+      }
+
+      // Create conversion overlay
+      var overlay = document.createElement('div');
+      overlay.className = 'export-overlay';
+      overlay.innerHTML = '<div class="export-modal">' +
+        '<h3>Converting to ' + format.toUpperCase() + '</h3>' +
+        '<div class="export-progress-bar"><div class="export-progress-fill" id="convertProgressFill"></div></div>' +
+        '<div class="export-status" id="convertStatus">Fetching video...</div>' +
+        '<div class="export-actions" id="convertActions"><button id="convertCancel">Cancel</button></div>' +
+        '</div>';
+      document.body.appendChild(overlay);
+
+      var convertStatusEl = document.getElementById('convertStatus');
+      var convertProgressFill = document.getElementById('convertProgressFill');
+      var convertActionsEl = document.getElementById('convertActions');
+      var convertCancelled = false;
+
+      document.getElementById('convertCancel').addEventListener('click', function() {
+        convertCancelled = true;
+        overlay.remove();
+      });
+
+      // Derive download name from video source
+      var srcName = activeVideo.src.split('/').pop().replace(/\\.webm$/i, '') || 'race-video';
+
+      // Fetch the video file and convert
+      fetch(activeVideo.src).then(function(response) {
+        if (convertCancelled) return;
+        return response.blob();
+      }).then(function(videoBlob) {
+        if (convertCancelled || !videoBlob) return;
+        convertWithFFmpeg(videoBlob, format, convertStatusEl, convertProgressFill, convertActionsEl, overlay, srcName);
+      }).catch(function(err) {
+        if (!convertCancelled) {
+          convertStatusEl.textContent = 'Error: ' + err.message;
+        }
+      });
+    });
   }
 })();
 </script>`;
