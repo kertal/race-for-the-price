@@ -1,6 +1,10 @@
 import { describe, it, expect } from 'vitest';
+import fs from 'fs';
+import os from 'os';
+import path from 'path';
 import { buildPlayerHtml } from '../cli/videoplayer.js';
 import { buildProfileComparison } from '../cli/profile-analysis.js';
+import { copyFFmpegFiles } from '../cli/results.js';
 
 const makeSummary = (overrides = {}) => ({
   racers: ['lauda', 'hunt'],
@@ -484,10 +488,16 @@ describe('buildPlayerHtml ffmpeg.wasm conversion', () => {
     expect(defaultHtml).toContain('convertWithFFmpeg');
   });
 
-  it('includes loadFFmpeg function with CDN URLs', () => {
+  it('includes loadFFmpeg function with local paths', () => {
     expect(defaultHtml).toContain('loadFFmpeg');
-    expect(defaultHtml).toContain('unpkg.com/@ffmpeg/ffmpeg@0.12.15/dist/esm');
-    expect(defaultHtml).toContain('unpkg.com/@ffmpeg/core@0.12.10/dist/esm');
+    expect(defaultHtml).toContain("import('./ffmpeg/index.js')");
+    expect(defaultHtml).toContain('./ffmpeg/ffmpeg-core.js');
+    expect(defaultHtml).toContain('./ffmpeg/ffmpeg-core.wasm');
+  });
+
+  it('includes file:// protocol check with helpful error message', () => {
+    expect(defaultHtml).toContain("location.protocol === 'file:'");
+    expect(defaultHtml).toContain('npx serve');
   });
 
   it('revokes blob URLs after ffmpeg load to prevent memory leak', () => {
@@ -553,6 +563,42 @@ describe('buildPlayerHtml ffmpeg.wasm conversion', () => {
 
   it('hides Convert dropdown when no videos', () => {
     expect(defaultHtml).toContain("raceVideos.length < 1");
+  });
+});
+
+// --- copyFFmpegFiles ---
+
+describe('copyFFmpegFiles', () => {
+  it('copies ffmpeg.wasm files to ffmpeg/ subdirectory', () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'race-test-'));
+    try {
+      const result = copyFFmpegFiles(tmpDir);
+      expect(result).toBe(true);
+
+      const ffmpegDir = path.join(tmpDir, 'ffmpeg');
+      expect(fs.existsSync(ffmpegDir)).toBe(true);
+      for (const file of ['index.js', 'classes.js', 'worker.js', 'ffmpeg-core.js', 'ffmpeg-core.wasm']) {
+        expect(fs.existsSync(path.join(ffmpegDir, file))).toBe(true);
+      }
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  it('logs specific source/destination on copy failure', () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'race-test-'));
+    const readOnlyDir = path.join(tmpDir, 'readonly');
+    fs.mkdirSync(readOnlyDir);
+    fs.chmodSync(readOnlyDir, 0o444);
+    try {
+      const result = copyFFmpegFiles(readOnlyDir);
+      if (!result) {
+        expect(fs.existsSync(path.join(readOnlyDir, 'ffmpeg'))).toBe(false);
+      }
+    } finally {
+      fs.chmodSync(readOnlyDir, 0o755);
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
   });
 });
 
