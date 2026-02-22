@@ -15,6 +15,7 @@
  */
 
 import fs from 'fs';
+import os from 'os';
 import path from 'path';
 import { spawn } from 'child_process';
 import { fileURLToPath } from 'url';
@@ -113,7 +114,7 @@ export function spawnRunner(ctx) {
 
 /** Run one race, collect results into runDir, return summary. */
 export async function runSingleRace(ctx, runDir, runNavigation = null) {
-  const { racerNames, settings, rootDir } = ctx;
+  const { racerNames, settings, recordingsDir } = ctx;
   const { format, ffmpeg } = settings;
   const racerRunDirs = racerNames.map(name => path.join(runDir, name));
   racerRunDirs.forEach(d => fs.mkdirSync(d, { recursive: true }));
@@ -121,7 +122,7 @@ export async function runSingleRace(ctx, runDir, runNavigation = null) {
   const result = await spawnRunner(ctx);
 
   const progress = startProgress('Processing recordings…');
-  const recordingsBase = path.join(rootDir, 'recordings');
+  const recordingsBase = recordingsDir;
   const results = racerNames.map((name, i) =>
     moveResults(recordingsBase, name, racerRunDirs[i], result.browsers?.[i] || {})
   );
@@ -192,6 +193,7 @@ export async function runSingleRace(ctx, runDir, runNavigation = null) {
 export function buildRaceContext({ racerNames, scripts, settings, rootDir = __dirname }) {
   const executionMode = settings.parallel ? 'parallel' : 'sequential';
   const throttle = { network: settings.network, cpu: settings.cpuThrottle };
+  const recordingsDir = fs.mkdtempSync(path.join(os.tmpdir(), 'race-recordings-'));
 
   const runnerConfig = {
     browsers: racerNames.map((name, i) => ({ id: name, script: scripts[i] })),
@@ -202,9 +204,10 @@ export function buildRaceContext({ racerNames, scripts, settings, rootDir = __di
     slowmo: settings.slowmo,
     noOverlay: settings.noOverlay,
     ffmpeg: settings.ffmpeg,
+    recordingsDir,
   };
 
-  return { racerNames, settings, executionMode, throttle, runnerConfig, rootDir };
+  return { racerNames, settings, executionMode, throttle, runnerConfig, rootDir, recordingsDir };
 }
 
 // --- CLI entry point ---
