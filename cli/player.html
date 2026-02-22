@@ -466,6 +466,91 @@
     font-weight: bold;
     min-width: 90px;
   }
+  .debug-markers {
+    margin-top: 0.6rem;
+    padding-top: 0.5rem;
+    border-top: 1px solid #444;
+  }
+  .debug-marker-racer {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    padding: 0.25rem 0;
+    font-size: 0.8rem;
+  }
+  .debug-marker-racer .racer-name {
+    font-weight: bold;
+    min-width: 90px;
+    flex-shrink: 0;
+  }
+  .debug-marker-timeline {
+    flex: 1;
+    position: relative;
+    height: 22px;
+    min-width: 200px;
+  }
+  .debug-marker-track {
+    position: absolute;
+    top: 9px;
+    left: 0;
+    right: 0;
+    height: 4px;
+    background: #333;
+    border-radius: 2px;
+  }
+  .debug-marker-seg {
+    position: absolute;
+    top: 2px;
+    height: 18px;
+    border-radius: 3px;
+    opacity: 0.7;
+    cursor: pointer;
+    transition: opacity 0.15s;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+  }
+  .debug-marker-seg:hover {
+    opacity: 1;
+  }
+  .debug-marker-label {
+    font-size: 0.65rem;
+    color: #fff;
+    white-space: nowrap;
+    padding: 0 3px;
+    text-shadow: 0 1px 2px rgba(0,0,0,0.6);
+  }
+  .debug-marker-tooltip {
+    position: absolute;
+    bottom: 100%;
+    left: 50%;
+    transform: translateX(-50%);
+    background: #1a1a1a;
+    border: 1px solid #e67e22;
+    border-radius: 4px;
+    padding: 3px 8px;
+    font-size: 0.72rem;
+    color: #e8e0d0;
+    white-space: nowrap;
+    pointer-events: none;
+    display: none;
+    z-index: 10;
+    margin-bottom: 4px;
+  }
+  .debug-marker-seg:hover .debug-marker-tooltip {
+    display: block;
+  }
+  .debug-marker-playhead {
+    position: absolute;
+    top: 0;
+    width: 2px;
+    height: 22px;
+    background: #e67e22;
+    pointer-events: none;
+    z-index: 5;
+    transition: left 0.05s linear;
+  }
   .export-btn {
     background: #2a2a2a;
     color: #d4af37;

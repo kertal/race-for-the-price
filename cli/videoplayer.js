@@ -278,6 +278,18 @@ function buildDebugPanelHtml(racers, placementOrder, clipTimes) {
 
   return `<div class="debug-panel" id="debugPanel">
   <h3>DEBUG: Clip Start Calibration</h3>${rows}
+  <div class="debug-markers" id="debugMarkers">
+    <div class="debug-stats-header">MARKERS</div>
+${placementOrder.map((origIdx, displayIdx) => {
+    const color = RACER_CSS_COLORS[origIdx % RACER_CSS_COLORS.length];
+    return `    <div class="debug-marker-racer" data-marker-idx="${displayIdx}">
+      <span class="racer-name" style="color: ${color}">${escHtml(racers[origIdx])}</span>
+      <div class="debug-marker-timeline" data-racer-idx="${displayIdx}">
+        <div class="debug-marker-track"></div>
+      </div>
+    </div>`;
+  }).join('\n')}
+  </div>
   <div class="debug-stats" id="debugStats">
     <div class="debug-stats-header">VIDEO INFO</div>
 ${placementOrder.map((origIdx, displayIdx) => {
@@ -333,7 +345,7 @@ ${debugPanelHtml || ''}
 // ---------------------------------------------------------------------------
 
 function buildPlayerScript(config) {
-  const { videoVars, videoArray, raceVideoPaths, fullVideoPaths, clipTimesJson, racerNamesJson, racerColorsJson } = config;
+  const { videoVars, videoArray, raceVideoPaths, fullVideoPaths, clipTimesJson, racerNamesJson, racerColorsJson, markersJson } = config;
   return `<script>
 (function() {
   ${videoVars}
@@ -343,6 +355,7 @@ function buildPlayerScript(config) {
   const clipTimes = ${clipTimesJson};
   const racerNames = ${racerNamesJson || '[]'};
   const racerColors = ${racerColorsJson || '[]'};
+  const markers = ${markersJson || '[]'};
   const mergedVideo = document.getElementById('mergedVideo');
   const playerContainer = document.getElementById('playerContainer');
   const mergedContainer = document.getElementById('mergedContainer');
@@ -429,6 +442,7 @@ function buildPlayerScript(config) {
           const d = clipDuration();
           scrubber.value = d > 0 ? (Math.max(0, t) / d) * 1000 : 0;
           updateTimeDisplay();
+          updateMarkerPlayheads();
         }
       });
     }
@@ -600,6 +614,80 @@ function buildPlayerScript(config) {
     updateTimeDisplay();
   }
 
+  // --- Debug: markers timeline ---
+  var MARKER_COLORS = ['#e67e22', '#2ecc71', '#9b59b6', '#1abc9c', '#e74c3c', '#f1c40f'];
+
+  function renderMarkers() {
+    if (!markers || markers.length === 0) return;
+    // Determine the full time range from video durations
+    var maxDur = Math.max.apply(null, raceVideos.filter(function(v) { return v; }).map(function(v) { return v.duration || 0; }));
+    if (maxDur <= 0) return;
+
+    for (var i = 0; i < markers.length; i++) {
+      var timeline = document.querySelector('.debug-marker-timeline[data-racer-idx="' + i + '"]');
+      if (!timeline) continue;
+      // Clear existing marker segments (keep the track)
+      var existing = timeline.querySelectorAll('.debug-marker-seg, .debug-marker-playhead');
+      for (var e = 0; e < existing.length; e++) existing[e].remove();
+
+      var racerMarkers = markers[i] || [];
+      for (var m = 0; m < racerMarkers.length; m++) {
+        var mk = racerMarkers[m];
+        if (mk.start == null || mk.end == null) continue;
+        var leftPct = (mk.start / maxDur) * 100;
+        var widthPct = ((mk.end - mk.start) / maxDur) * 100;
+        if (widthPct < 0.5) widthPct = 0.5; // minimum visible width
+        var color = MARKER_COLORS[m % MARKER_COLORS.length];
+        var seg = document.createElement('div');
+        seg.className = 'debug-marker-seg';
+        seg.style.left = leftPct + '%';
+        seg.style.width = widthPct + '%';
+        seg.style.background = color;
+        seg.setAttribute('data-racer', String(i));
+        seg.setAttribute('data-start', String(mk.start));
+        seg.setAttribute('data-end', String(mk.end));
+        seg.innerHTML = '<span class="debug-marker-label">' + mk.name + '</span>' +
+          '<span class="debug-marker-tooltip">' + mk.name + ': ' + mk.start.toFixed(3) + 's \\u2192 ' + mk.end.toFixed(3) + 's (' + mk.duration.toFixed(3) + 's)</span>';
+        timeline.appendChild(seg);
+      }
+
+      // Add playhead
+      var playhead = document.createElement('div');
+      playhead.className = 'debug-marker-playhead';
+      playhead.style.left = '0%';
+      timeline.appendChild(playhead);
+    }
+  }
+
+  function updateMarkerPlayheads() {
+    var maxDur = Math.max.apply(null, raceVideos.filter(function(v) { return v; }).map(function(v) { return v.duration || 0; }));
+    if (maxDur <= 0) return;
+    var playheads = document.querySelectorAll('.debug-marker-playhead');
+    for (var i = 0; i < playheads.length; i++) {
+      var timeline = playheads[i].parentElement;
+      var racerIdx = parseInt(timeline.getAttribute('data-racer-idx'), 10);
+      var v = raceVideos[racerIdx];
+      if (!v) continue;
+      var t = v.currentTime || 0;
+      playheads[i].style.left = ((t / maxDur) * 100) + '%';
+    }
+  }
+
+  // Click on a marker segment to seek to its start
+  var markersEl = document.getElementById('debugMarkers');
+  if (markersEl) {
+    markersEl.addEventListener('click', function(e) {
+      var seg = e.target.closest('.debug-marker-seg');
+      if (!seg) return;
+      var startTime = parseFloat(seg.getAttribute('data-start'));
+      if (isFinite(startTime)) {
+        seekAll(startTime);
+        updateTimeDisplay();
+        updateMarkerPlayheads();
+      }
+    });
+  }
+
   function switchToDebug() {
     if (playing) { videos.forEach(function(v) { v && v.pause(); }); playing = false; playBtn.textContent = '\\u25B6'; }
     raceVideos.forEach(function(v, i) { v.src = raceVideoPaths[i]; });
@@ -614,6 +702,7 @@ function buildPlayerScript(config) {
     onMeta();
     updateDebugDisplay();
     updateDebugStats();
+    renderMarkers();
     seekAll(activeClip ? activeClip.start : 0);
     scrubber.value = 0;
   }
@@ -956,6 +1045,19 @@ export function buildPlayerHtml(summary, videoFiles, altFormat, altFiles, option
     const orderedRacerNames = placementOrder.map(i => racers[i]);
     const orderedRacerColors = placementOrder.map(i => RACER_CSS_COLORS[i % RACER_CSS_COLORS.length]);
 
+    // Build per-racer markers from comparisons (measurements with timestamps)
+    const orderedMarkers = placementOrder.map(origIdx => {
+      const comps = summary.comparisons || [];
+      return comps
+        .filter(c => c.racers[origIdx] && c.racers[origIdx].startTime != null)
+        .map(c => ({
+          name: c.name,
+          start: c.racers[origIdx].startTime,
+          end: c.racers[origIdx].endTime,
+          duration: c.racers[origIdx].duration,
+        }));
+    });
+
     scriptTag = buildPlayerScript({
       videoVars: videoIds.map(id => `const ${id} = document.getElementById('${id}');`).join('\n  '),
       videoArray: `[${videoIds.join(', ')}]`,
@@ -968,6 +1070,7 @@ export function buildPlayerHtml(summary, videoFiles, altFormat, altFiles, option
         : 'null',
       racerNamesJson: JSON.stringify(orderedRacerNames),
       racerColorsJson: JSON.stringify(orderedRacerColors),
+      markersJson: JSON.stringify(orderedMarkers),
     });
   }
 
