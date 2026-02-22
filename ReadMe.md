@@ -174,7 +174,7 @@ The `--runs` flag takes the median, smoothing out noise and giving you a number 
 ```bash
 node race.js <dir>                        # Green light — run the race
 node race.js <dir> --results              # Check the scoreboard
-node race.js <dir> --parallel             # Side by side — more spectacular, less accurate
+node race.js <dir> --parallel             # Side by side — pure spectacle, wizard-of-many-windows mode
 node race.js <dir> --headless             # Lights out — no visible browsers
 node race.js <dir> --network=slow-3g      # Wet track conditions
 node race.js <dir> --network=fast-3g      # Damp track
@@ -189,6 +189,12 @@ node race.js <dir> --ffmpeg              # Enable FFmpeg processing (trim, merge
 ```
 
 CLI flags always override `settings.json`. The stewards have spoken.
+
+### Serial vs Parallel: Accuracy vs Spectacle
+
+By default, races run in **serial** (sequential) mode — one browser at a time. This gives you the most accurate and reliable timing results because each racer gets the full, undivided attention of your machine's CPU and network stack. If you care about the numbers, stick with serial.
+
+**Parallel mode** (`--parallel`) launches both browsers simultaneously and is purely for the show. It's demo day mode — the wizard-of-many-windows spectacle where two browsers tear down the track side by side in real time. It looks fantastic in presentations and screen recordings, but since both browsers compete for the same system resources, the timings are less reliable. Use it when you want to impress an audience, not when you need to trust the stopwatch.
 
 ## Race Results
 
@@ -231,7 +237,7 @@ The terminal delivers the verdict in style:
 
 ```json
 {
-  "parallel": true,
+  "parallel": false,
   "network": "none",
   "cpuThrottle": 1,
   "headless": false,
@@ -241,7 +247,7 @@ The terminal delivers the verdict in style:
 
 | Field | Values | Default |
 |---|---|---|
-| `parallel` | `true` / `false` | `true` |
+| `parallel` | `true` / `false` | `false` |
 | `network` | `none`, `slow-3g`, `fast-3g`, `4g` | `none` |
 | `cpuThrottle` | `1` (none) to any multiplier | `1` |
 | `headless` | `true` / `false` | `false` |
