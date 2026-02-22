@@ -73,8 +73,7 @@ describe('clip-alignment integration', () => {
     tmpDir = path.join(__dirname, '..', 'test-results', 'clip-alignment-' + Date.now());
     fs.mkdirSync(tmpDir, { recursive: true });
 
-    // Create dummy video files (1-second silent WebM) so the player can load them.
-    // We use a minimal VP8 WebM that has enough frames to test seeking.
+    // Create per-video directories for the src paths referenced in index.html.
     for (const vf of videoFiles) {
       const dir = path.join(tmpDir, path.dirname(vf));
       fs.mkdirSync(dir, { recursive: true });

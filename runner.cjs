@@ -687,6 +687,7 @@ async function runMarkerMode(page, context, config, barriers, isParallel, shared
   let cdpSession = null;
 
   page.raceWaitForVisualStability = async (opts = {}) => {
+    const callStart = Date.now();
     try {
       if (!cdpSession) {
         cdpSession = await page.context().newCDPSession(page);
@@ -709,7 +710,7 @@ async function runMarkerMode(page, context, config, barriers, isParallel, shared
       return result;
     } catch (err) {
       console.error(`[${id}] raceWaitForVisualStability error: ${err.message}`);
-      return { stable: false, elapsed: 0 };
+      return { stable: false, elapsed: Date.now() - callStart };
     }
   };
 

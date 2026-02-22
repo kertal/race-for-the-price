@@ -30,25 +30,30 @@ async function waitForStability(getCounters, options = {}) {
   let stableSince = Date.now();
 
   while (true) {
-    const elapsed = Date.now() - start;
+    const now = Date.now();
+    const elapsed = now - start;
     if (elapsed >= timeout) {
       return { stable: false, elapsed };
-    }
-
-    if (Date.now() - stableSince >= stabilityWindow) {
-      return { stable: true, elapsed };
     }
 
     await new Promise(r => setTimeout(r, pollInterval));
 
     const curr = await getCounters();
+    const sampleTime = Date.now();
+    const sampleElapsed = sampleTime - start;
+
     if (
       curr.taskDuration !== prev.taskDuration ||
       curr.layoutCount !== prev.layoutCount ||
       curr.recalcStyleCount !== prev.recalcStyleCount
     ) {
-      stableSince = Date.now();
+      stableSince = sampleTime;
       prev = curr;
+      continue;
+    }
+
+    if (sampleTime - stableSince >= stabilityWindow) {
+      return { stable: true, elapsed: sampleElapsed };
     }
   }
 }

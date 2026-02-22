@@ -423,8 +423,16 @@ function buildPlayerScript(config) {
         playBtn.textContent = '\\u25B6';
       });
       primary.addEventListener('timeupdate', function() {
+        // Derive elapsed from primary clip's own start (not minStart) so the
+        // scrubber stays correct when the primary's clip starts after minStart.
+        var adj = getAdjustedClipTimes();
+        var ct = adj || clipTimes;
+        var primaryClip = activeClip && ct && isValidClipEntry(ct[0]) ? ct[0] : null;
+        var elapsed = primaryClip
+          ? (primary.currentTime - primaryClip.start)
+          : (primary.currentTime - clipOffset());
         // Enforce clip end boundary
-        if (activeClip && primary.currentTime >= activeClip.end) {
+        if (activeClip && elapsed >= clipDuration()) {
           videos.forEach(v => v && v.pause());
           seekAll(activeClip.end);
           playing = false;
@@ -434,9 +442,8 @@ function buildPlayerScript(config) {
           return;
         }
         if (duration > 0) {
-          const t = primary.currentTime - clipOffset();
           const d = clipDuration();
-          scrubber.value = d > 0 ? (Math.max(0, t) / d) * 1000 : 0;
+          scrubber.value = d > 0 ? (Math.max(0, elapsed) / d) * 1000 : 0;
           updateTimeDisplay();
         }
       });
