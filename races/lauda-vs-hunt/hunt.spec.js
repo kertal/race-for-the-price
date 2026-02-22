@@ -2,7 +2,7 @@
 // 1976 World Champion. Raw speed, pure guts.
 // Race: Scroll to the bottom of his Wikipedia page — human-like speed.
 
-await page.goto('https://en.wikipedia.org/wiki/James_Hunt', { waitUntil: 'domcontentloaded' });
+await page.goto('https://en.wikipedia.org/wiki/James_Hunt', { waitUntil: 'load' });
 
 await page.raceRecordingStart();
 await page.waitForTimeout(1500);
@@ -21,5 +21,6 @@ while (true) {
 }
 
 page.raceEnd('Scroll to Bottom');
+page.raceMessage('Full throttle, no regrets!');
 await page.waitForTimeout(1500);
 await page.raceRecordingEnd();

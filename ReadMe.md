@@ -35,6 +35,16 @@ races/lauda-vs-hunt/
   settings.json      # Race conditions (parallel, throttle, etc.)
 ```
 
+## 🏀 LeBron vs Curry
+
+The GOAT debate, settled by browser performance. LeBron James — "The King" — against Stephen Curry — "The Chef". Both start at a fixed scroll position on their Wikipedia pages and dribble — basketball physics style, with gravity acceleration down and deceleration up — three times before racing back to the top.
+
+```bash
+node race.js ./races/lebron-vs-curry
+```
+
+The dribbles are perfectly synced. The difference? The scroll back to the top: LeBron uses a smooth ease-in-out, Curry snaps up with a cubic ease-out. Pure browser performance decides the winner.
+
 ## Building Your Own Grand Prix
 
 Every race needs two contenders. Create a folder with two `.spec.js` scripts:
@@ -49,8 +59,13 @@ races/my-race/
 Each script gets a Playwright `page` object with race timing built in:
 
 ```js
-// Navigate to the starting line
+// Navigate and wait for the page to be ready
 await page.goto('https://example.com', { waitUntil: 'load' });
+await page.waitForSelector('.action-button');
+
+// Start recording early — gives viewers context before the action
+await page.raceRecordingStart();
+await page.waitForTimeout(1500);
 
 // Drop the flag — start the clock
 await page.raceStart('Full Page Load');
@@ -61,6 +76,9 @@ await page.waitForSelector('.result-loaded');
 
 // Checkered flag — stop the clock
 page.raceEnd('Full Page Load');
+
+// Hold the frame so the video doesn't cut abruptly
+await page.waitForTimeout(1500);
 page.raceRecordingEnd();
 ```
 
@@ -75,22 +93,99 @@ page.raceRecordingEnd();
 
 If you skip `raceRecordingStart`/`End`, the video automatically wraps your first `raceStart` to last `raceEnd`.
 
+## Use Cases: What You Can Race
+
+### A/B testing different versions of your app
+
+Ship a performance regression? Find out before your users do. Point two racers at the same workflow — one against your current release, one against the candidate build:
+
+```
+races/checkout-v2-vs-v3/
+  checkout-v2.spec.js    # Production: https://app.example.com
+  checkout-v3.spec.js    # Staging: https://staging.example.com
+```
+
+```js
+// checkout-v3.spec.js
+await page.goto('https://staging.example.com/products');
+await page.waitForSelector('.product-list');
+
+// Start recording with a brief pause so viewers see the initial state
+await page.raceRecordingStart();
+await page.waitForTimeout(1500);
+
+await page.raceStart('Add to cart flow');
+await page.click('.add-to-cart');
+await page.waitForSelector('.cart-badge');
+page.raceEnd('Add to cart flow');
+
+await page.raceStart('Checkout render');
+await page.click('.checkout-button');
+await page.waitForSelector('.payment-form');
+page.raceEnd('Checkout render');
+
+// Let the final state linger in the recording
+await page.waitForTimeout(1500);
+page.raceRecordingEnd();
+```
+
+Run it under realistic conditions with throttling to see how it feels on real devices:
+
+```bash
+node race.js ./races/checkout-v2-vs-v3 --network=fast-3g --cpu=4 --runs=5
+```
+
+### Comparing competing products or frameworks
+
+Which dashboard loads faster — yours or the competition? Which CSS framework renders a complex layout quicker? Set up a head-to-head:
+
+```
+races/react-vs-svelte-todo/
+  react-todo.spec.js      # React TodoMVC
+  svelte-todo.spec.js     # Svelte TodoMVC
+```
+
+### Measuring the impact of a single change
+
+Want to know if lazy-loading images actually helped? Create two racers that hit the same page — one with the feature flag on, one off:
+
+```
+races/lazy-loading-impact/
+  with-lazy.spec.js       # ?feature=lazy-images
+  without-lazy.spec.js    # ?feature=eager-images
+```
+
+### Monitoring third-party script cost
+
+Quantify the performance tax of analytics, chat widgets, or ad scripts by racing a page with and without them.
+
+### Simulating real-world conditions
+
+Combine network throttling and CPU slowdown to approximate mobile users on spotty connections:
+
+```bash
+node race.js ./races/my-race --network=slow-3g --cpu=6 --runs=3
+```
+
+The `--runs` flag takes the median, smoothing out noise and giving you a number you can trust.
+
 ## Race Flags (CLI Options)
 
 ```bash
 node race.js <dir>                        # Green light — run the race
 node race.js <dir> --results              # Check the scoreboard
-node race.js <dir> --sequential           # One at a time, no drafting
+node race.js <dir> --parallel             # Side by side — more spectacular, less accurate
 node race.js <dir> --headless             # Lights out — no visible browsers
 node race.js <dir> --network=slow-3g      # Wet track conditions
 node race.js <dir> --network=fast-3g      # Damp track
 node race.js <dir> --network=4g           # Dry track
 node race.js <dir> --cpu=4                # Ballast penalty (CPU throttle)
-node race.js <dir> --format=mov           # Broadcast-ready replay format
-node race.js <dir> --format=gif           # Quick highlight reel
+node race.js <dir> --format=mov           # Broadcast-ready replay format (requires --ffmpeg)
+node race.js <dir> --format=gif           # Quick highlight reel (requires --ffmpeg)
 node race.js <dir> --runs=3               # Best of 3 — median wins
 node race.js <dir> --slowmo=2            # Slow-motion replay (2x, 3x, etc.)
 node race.js <dir> --profile             # Capture Chrome performance traces
+node race.js <dir> --ffmpeg              # Enable FFmpeg processing (trim, merge, convert)
 ```
 
 CLI flags always override `settings.json`. The stewards have spoken.
@@ -103,19 +198,22 @@ After every race, the results land in a timestamped folder:
 races/my-race/results-2026-01-31_14-30-00/
   contender-a/
     contender-a.race.webm     # Onboard camera footage
-    contender-a.full.webm     # Full session recording
+    contender-a.full.webm     # Full session recording (--ffmpeg only)
     contender-a.trace.json    # Performance trace (--profile)
     measurements.json          # Lap times
     clicks.json                # Driver inputs
   contender-b/
     ...
-  contender-a-vs-contender-b.webm   # Side-by-side broadcast replay
+  contender-a-vs-contender-b.webm   # Side-by-side broadcast replay (--ffmpeg only)
+  index.html                          # Interactive HTML player with video replay
   summary.json                        # Official race classification
   README.md                           # Race report card
 ```
 
+By default, videos are untrimmed and the HTML player handles virtual trimming via clip times. With `--ffmpeg`, videos are frame-accurately trimmed, a side-by-side merged video is created, and format conversion (mov/gif) is available.
+
 Disclaimer: Due to the nature of the way the video is transformed, the aim here is not accuracy, it's to showcase, to visualize performance. To compare between different network and browser settings.
-Do double check and question the metrics and findigs. It should be a helpful tool supporting performance related narratives, but don't assume 100% accuracy. However, this generally applys to many 
+Do double check and question the metrics and findings. It should be a helpful tool supporting performance related narratives, but don't assume 100% accuracy. However, this generally applies to many 
 browser gained performance metrics. There are many side effects. And screen recording, plus video cutting is another one.
 
 ## The Podium Ceremony
@@ -126,7 +224,7 @@ The terminal delivers the verdict in style:
 - 📊 Bar chart comparison of every timed measurement
 - 🥇🥈 Medal assignments per measurement
 - 🏆 **Overall winner declared**
-- 📹 Side-by-side video replay (via FFmpeg)
+- 📹 Side-by-side video replay (in-browser export, or server-side via `--ffmpeg`)
 - 📈 Chrome performance traces (`--profile`, open in `chrome://tracing`)
 
 ## `settings.json` Reference
@@ -152,7 +250,9 @@ The terminal delivers the verdict in style:
 ## Prerequisites
 
 - **Node.js** 18+ (required)
-- **FFmpeg** (optional — for side-by-side video replays and GIF export)
+- **FFmpeg** (optional — only needed with `--ffmpeg` for server-side video trimming, side-by-side merging, and format conversion)
+
+Without FFmpeg, the tool works out of the box — the HTML player handles virtual trimming and includes a client-side Export button for creating side-by-side videos directly in the browser.
 
 See the **[Installation Guide](INSTALLATION.md)** for detailed setup instructions on every platform.
 
@@ -168,9 +268,11 @@ RaceForThePrize/
 │   ├── config.js        # Argument parsing & racer discovery
 │   ├── results.js       # File management & video conversion
 │   ├── summary.js       # Results formatting & markdown reports
-│   └── sidebyside.js    # FFmpeg video composition
+│   ├── sidebyside.js    # FFmpeg video composition (--ffmpeg)
+│   └── videoplayer.js   # Interactive HTML player with clip-based trimming
 ├── races/
-│   └── lauda-vs-hunt/   # 🏆 Example: the greatest rivalry in racing
+│   ├── lauda-vs-hunt/   # 🏆 Example: the greatest rivalry in racing
+│   └── lebron-vs-curry/ # 🏀 Example: the GOAT debate, dribble-style
 ├── tests/               # Test suite
 └── package.json
 ```

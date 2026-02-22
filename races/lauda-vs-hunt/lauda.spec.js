@@ -2,7 +2,7 @@
 // Three-time World Champion. Precision incarnate.
 // Race: Scroll to the bottom of his Wikipedia page — human-like speed.
 
-await page.goto('https://en.wikipedia.org/wiki/Niki_Lauda', { waitUntil: 'domcontentloaded' });
+await page.goto('https://en.wikipedia.org/wiki/Niki_Lauda', { waitUntil: 'load' });
 
 await page.raceRecordingStart();
 await page.waitForTimeout(1500);
@@ -21,5 +21,6 @@ while (true) {
 }
 
 page.raceEnd('Scroll to Bottom');
+page.raceMessage('Precision beats chaos.');
 await page.waitForTimeout(1500);
 await page.raceRecordingEnd();

@@ -23,6 +23,27 @@ const { execFileSync } = require('child_process');
 let activeBrowsers = [];
 let activeContexts = [];
 
+// --- Named constants (previously magic numbers) ---
+
+const OLD_VIDEO_CLEANUP_MS = 5000;      // Age threshold for deleting stale recordings
+const MEDAL_DISPLAY_MS = 500;           // How long to show the placement medal overlay
+const POST_RACE_WAIT_MS = 500;          // Pause after race finishes for final video frames
+const SLOWMO_MULTIPLIER = 20;           // Playwright slowMo factor per slowmo unit
+const PAGE_TIMEOUT_MS = 90000;          // Default page action/navigation timeout
+const FFMPEG_TIMEOUT_MS = 120000;       // Timeout for ffmpeg/ffprobe operations
+
+// --- Constants (loaded from shared ESM module) ---
+
+// These will be populated by loadConstants() before main() runs
+let SCREEN, WINDOW_HEIGHT, CUE_DETECTION;
+
+async function loadConstants() {
+  const { SCREEN: s, VIDEO_DEFAULTS: v, CUE_DETECTION: c } = await import('./cli/colors.js');
+  SCREEN = s;
+  WINDOW_HEIGHT = v.windowHeight;
+  CUE_DETECTION = c;
+}
+
 // --- Video helpers ---
 
 /** Return the most recently modified .webm filename in a directory, or null. */
@@ -46,11 +67,12 @@ function getMostRecentVideo(dir) {
  */
 function detectCueFrames(videoPath) {
   try {
-    // Crop 10x10 top-left corner where the cue pixel lives, then analyze color
-    const escaped = videoPath.replace(/\\/g, '/').replace(/'/g, "'\\''").replace(/ /g, '\\ ');
+    // Crop 30x30 top-left corner where the cue square lives, then analyze color
+    // Percent-encode characters that are special in FFmpeg lavfi filter syntax
+    const escaped = videoPath.replace(/\\/g, '/').replace(/[';,\[\]=\\ ]/g, ch => '%' + ch.charCodeAt(0).toString(16).padStart(2, '0'));
     const result = execFileSync('ffprobe', [
       '-f', 'lavfi',
-      '-i', 'movie=' + escaped + ',crop=10:10:0:0,signalstats',
+      '-i', 'movie=' + escaped + ',crop=30:30:0:0,signalstats',
       '-show_entries', 'frame=pts_time:frame_tags=lavfi.signalstats.HUEAVG,lavfi.signalstats.SATAVG,lavfi.signalstats.YAVG',
       '-of', 'csv=p=0',
       '-v', 'quiet'
@@ -73,18 +95,21 @@ function detectCueFrames(videoPath) {
       if (time > prevTime && prevTime > 0) frameDuration = time - prevTime;
       prevTime = time;
 
-      // Cue frames have high saturation (>80).
+      // Cue frames have high saturation.
       // Green (#00FF00): hue ~146, sat ~118, Y ~38 in signalstats
       // Red (#FF0000): hue ~81, sat ~116, Y ~161 in signalstats
-      if (sat > 80) {
-        if (hue > 130 && hue < 170 && y < 80) {
+      if (sat > CUE_DETECTION.saturationMin) {
+        if (hue > CUE_DETECTION.startHueMin && hue < CUE_DETECTION.startHueMax && y < CUE_DETECTION.startYMax) {
           startCues.push(time);
-        } else if (hue > 60 && hue < 100 && y > 120) {
+        } else if (hue > CUE_DETECTION.endHueMin && hue < CUE_DETECTION.endHueMax && y > CUE_DETECTION.endYMin) {
           endCues.push(time);
         }
       }
     }
 
+    if (startCues.length === 0 || endCues.length === 0) {
+      console.error(`[detectCueFrames] Warning: Could not detect cues (start: ${startCues.length}, end: ${endCues.length})`);
+    }
     return { startCues, endCues, frameDuration };
   } catch (e) {
     console.error(`[detectCueFrames] Failed: ${e.message}`);
@@ -133,7 +158,7 @@ function extractSegments(videoPath, segments, browserId) {
         '-ss', seg.start.toFixed(3), '-t', (seg.end - seg.start).toFixed(3),
         '-c:v', 'libvpx-vp9', '-crf', '30', '-b:v', '0',
         trimmedPath
-      ], { timeout: 120000, stdio: 'pipe' });
+      ], { timeout: FFMPEG_TIMEOUT_MS, stdio: 'pipe' });
       fs.unlinkSync(videoPath);
       fs.renameSync(trimmedPath, videoPath);
       return { trimmedPath: videoPath, fullPath };
@@ -152,7 +177,7 @@ function extractSegments(videoPath, segments, browserId) {
         '-ss', seg.start.toFixed(3), '-t', (seg.end - seg.start).toFixed(3),
         '-c:v', 'libvpx-vp9', '-crf', '30', '-b:v', '0',
         segPath
-      ], { timeout: 120000, stdio: 'pipe' });
+      ], { timeout: FFMPEG_TIMEOUT_MS, stdio: 'pipe' });
     }
 
     fs.writeFileSync(concatListPath, segmentFiles.map(f => `file '${f}'`).join('\n'));
@@ -160,10 +185,10 @@ function extractSegments(videoPath, segments, browserId) {
     execFileSync('ffmpeg', [
       '-y', '-f', 'concat', '-safe', '0',
       '-i', concatListPath, '-c', 'copy', outputPath
-    ], { timeout: 120000, stdio: 'pipe' });
+    ], { timeout: FFMPEG_TIMEOUT_MS, stdio: 'pipe' });
 
-    for (const f of segmentFiles) { try { fs.unlinkSync(f); } catch {} }
-    try { fs.unlinkSync(concatListPath); } catch {}
+    for (const f of segmentFiles) { try { fs.unlinkSync(f); } catch (e) { console.error(`[extractSegments] Cleanup warning: ${e.message}`); } }
+    try { fs.unlinkSync(concatListPath); } catch (e) { console.error(`[extractSegments] Cleanup warning: ${e.message}`); }
     fs.unlinkSync(videoPath);
     fs.renameSync(outputPath, videoPath);
 
@@ -188,11 +213,13 @@ function cleanupOldVideos(dir) {
     const now = Date.now();
     for (const file of fs.readdirSync(dir).filter(f => f.endsWith('.webm'))) {
       const filepath = path.join(dir, file);
-      if (now - fs.statSync(filepath).mtime.getTime() > 5000) {
+      if (now - fs.statSync(filepath).mtime.getTime() > OLD_VIDEO_CLEANUP_MS) {
         fs.unlinkSync(filepath);
       }
     }
-  } catch {}
+  } catch (e) {
+    console.error(`[cleanupOldVideos] Warning: ${e.message}`);
+  }
 }
 
 // --- Signal handling ---
@@ -202,7 +229,7 @@ async function cleanup() {
   for (const browser of activeBrowsers) { try { await browser.close(); } catch {} }
   await new Promise(r => setTimeout(r, 100));
 
-  console.log(JSON.stringify({ browser1Video: null, browser2Video: null }));
+  console.log(JSON.stringify({ browsers: [] }));
   process.exit(0);
 }
 
@@ -211,95 +238,22 @@ process.on('SIGINT', cleanup);
 
 // --- Sync barrier for parallel mode ---
 
-/**
- * Blocks until `count` callers have called wait(), then releases all.
- * Used to synchronize two browsers at key moments (ready, recording start, stop).
- */
-class SyncBarrier {
-  constructor(count, sharedState = null) {
-    this.count = count;
-    this.waiting = 0;
-    this.resolvers = [];
-    this.sharedState = sharedState;
-    this.released = false;
-  }
+const { SyncBarrier } = require('./sync-barrier.cjs');
 
-  releaseAll() {
-    if (this.released) return;
-    this.released = true;
-    this.resolvers.forEach(r => r({ aborted: true }));
-    this.resolvers = [];
-  }
-
-  async wait(label = '') {
-    if (this.released || this.sharedState?.hasError) return { aborted: true };
-
-    this.waiting++;
-    if (this.waiting >= this.count) {
-      this.resolvers.forEach(r => r({ aborted: false }));
-      this.waiting = 0;
-      this.resolvers = [];
-      return { aborted: false };
-    }
-
-    return new Promise(resolve => {
-      this.resolvers.push(resolve);
-      const check = setInterval(() => {
-        if (this.sharedState?.hasError || this.released) {
-          clearInterval(check);
-          resolve({ aborted: true });
-        }
-      }, 100);
-    });
-  }
-}
-
-// --- Click visualizer (injected into browser pages) ---
+// --- Click event tracker (injected into browser pages) ---
 
 /**
- * Injects a click indicator overlay into all pages in the context.
- * Shows a red ripple animation on every mousedown and records click events
- * with timestamps relative to recordingStartTime for later analysis.
+ * Injects a click event tracker into all pages in the context.
+ * Records click events with timestamps relative to recordingStartTime for later analysis.
  */
-async function setupClickVisualizer(context, recordingStartTime) {
+async function setupClickTracker(context, recordingStartTime) {
   await context.addInitScript((startTime) => {
-    if (window.__clickVisualizerInjected) return;
-    window.__clickVisualizerInjected = true;
+    if (window.__clickTrackerInjected) return;
+    window.__clickTrackerInjected = true;
     window.__recordingStartTime = startTime;
     window.__clickEvents = [];
 
-    const style = document.createElement('style');
-    style.textContent = `
-      .playwright-click-indicator {
-        position: fixed; pointer-events: none; z-index: 999999;
-        width: 40px; height: 40px; border-radius: 50%;
-        background: radial-gradient(circle, rgba(255,82,82,0.9) 0%, rgba(255,82,82,0.5) 30%, transparent 60%);
-        transform: translate(-50%, -50%) scale(0);
-        animation: click-ripple 0.5s ease-out forwards;
-      }
-      .playwright-click-indicator::after {
-        content: ''; position: absolute; top: 50%; left: 50%;
-        width: 50px; height: 50px; border-radius: 50%;
-        border: 3px solid rgba(255,82,82,0.7);
-        transform: translate(-50%, -50%) scale(0);
-        animation: click-ring 0.5s ease-out forwards;
-      }
-      @keyframes click-ripple {
-        0% { transform: translate(-50%, -50%) scale(0); opacity: 1; }
-        60% { transform: translate(-50%, -50%) scale(1.2); opacity: 0.7; }
-        100% { transform: translate(-50%, -50%) scale(1.8); opacity: 0; }
-      }
-      @keyframes click-ring {
-        0% { transform: translate(-50%, -50%) scale(0); opacity: 1; }
-        100% { transform: translate(-50%, -50%) scale(1.3); opacity: 0; }
-      }
-    `;
-
     const inject = () => {
-      const target = document.head || document.body;
-      if (!target) { requestAnimationFrame(inject); return; }
-      target.appendChild(style);
-
       document.addEventListener('mousedown', (e) => {
         const ts = (Date.now() - window.__recordingStartTime) / 1000;
         let desc = e.target.tagName.toLowerCase();
@@ -310,13 +264,6 @@ async function setupClickVisualizer(context, recordingStartTime) {
         const text = (e.target.textContent || '').trim().slice(0, 30);
         if (text) desc += ` "${text}${text.length >= 30 ? '...' : ''}"`;
         window.__clickEvents.push({ timestamp: ts, x: e.clientX, y: e.clientY, element: desc });
-
-        const dot = document.createElement('div');
-        dot.className = 'playwright-click-indicator';
-        dot.style.left = e.clientX + 'px';
-        dot.style.top = e.clientY + 'px';
-        document.body.appendChild(dot);
-        setTimeout(() => dot.remove(), 500);
       }, true);
     };
 
@@ -329,6 +276,199 @@ async function setupClickVisualizer(context, recordingStartTime) {
 async function getClickEvents(page) {
   try { return await page.evaluate(() => window.__clickEvents || []); }
   catch { return []; }
+}
+
+// --- Performance metrics collection via CDP ---
+
+/**
+ * Set up CDP session for capturing network and performance metrics.
+ * Tracks network transfer sizes, request counts, and prepares for Performance API collection.
+ * Supports both total session metrics and measurement-scoped metrics (between raceStart/raceEnd).
+ * @param {Page} page - Playwright page
+ * @param {string} id - Browser identifier for logging
+ * @returns {Object} Metrics collector with methods to snapshot and collect
+ */
+async function setupMetricsCollection(page, id) {
+  // Running totals for network (accumulated via events)
+  const networkTotals = {
+    transferSize: 0,
+    requestCount: 0
+  };
+
+  // Snapshot taken at raceStart for computing deltas
+  let startSnapshot = null;
+
+  // Network activity during measurement period
+  let measuredNetwork = { transferSize: 0, requestCount: 0 };
+  let isMeasuring = false;
+
+  let client = null;
+
+  try {
+    client = await page.context().newCDPSession(page);
+    await client.send('Network.enable');
+    await client.send('Performance.enable');
+
+    // Track network transfer sizes
+    client.on('Network.loadingFinished', (params) => {
+      const size = params.encodedDataLength || 0;
+      networkTotals.transferSize += size;
+      networkTotals.requestCount++;
+      // Also track during measurement period
+      if (isMeasuring) {
+        measuredNetwork.transferSize += size;
+        measuredNetwork.requestCount++;
+      }
+    });
+
+  } catch (error) {
+    console.error(`[${id}] Warning: metrics collection setup failed: ${error.message}`);
+  }
+
+  /**
+   * Get current CDP performance metrics snapshot.
+   */
+  async function getCdpMetrics() {
+    if (!client) return null;
+    try {
+      const perfMetrics = await client.send('Performance.getMetrics');
+      const metricsMap = {};
+      for (const m of perfMetrics.metrics) {
+        metricsMap[m.name] = m.value;
+      }
+      // CDP Performance.getMetrics returns durations in seconds; convert to ms
+      return {
+        jsHeapUsedSize: metricsMap.JSHeapUsedSize || 0,
+        scriptDuration: (metricsMap.ScriptDuration || 0) * 1000,
+        layoutDuration: (metricsMap.LayoutDuration || 0) * 1000,
+        recalcStyleDuration: (metricsMap.RecalcStyleDuration || 0) * 1000,
+        taskDuration: (metricsMap.TaskDuration || 0) * 1000
+      };
+    } catch {
+      return null;
+    }
+  }
+
+  return {
+    /**
+     * Take a snapshot at measurement start (raceStart).
+     * Call this to begin tracking measurement-scoped metrics.
+     */
+    async startMeasurement() {
+      startSnapshot = await getCdpMetrics();
+      measuredNetwork = { transferSize: 0, requestCount: 0 };
+      isMeasuring = true;
+    },
+
+    /**
+     * End measurement period (raceEnd).
+     */
+    stopMeasurement() {
+      isMeasuring = false;
+    },
+
+    /**
+     * Collect final metrics at the end of the race.
+     * Returns both total session metrics and measurement-scoped metrics.
+     */
+    async collect() {
+      const result = {
+        total: {
+          networkTransferSize: networkTotals.transferSize,
+          networkRequestCount: networkTotals.requestCount,
+          domContentLoaded: null,
+          domComplete: null,
+          jsHeapUsedSize: null,
+          scriptDuration: null,
+          layoutDuration: null,
+          recalcStyleDuration: null,
+          taskDuration: null
+        },
+        measured: {
+          networkTransferSize: measuredNetwork.transferSize,
+          networkRequestCount: measuredNetwork.requestCount,
+          scriptDuration: null,
+          layoutDuration: null,
+          recalcStyleDuration: null,
+          taskDuration: null
+        }
+      };
+
+      try {
+        // Get navigation timing from the page
+        const timing = await page.evaluate(() => {
+          const perf = window.performance;
+          if (!perf || !perf.timing) return null;
+          const t = perf.timing;
+          return {
+            domContentLoaded: t.domContentLoadedEventEnd - t.navigationStart,
+            domComplete: t.domComplete - t.navigationStart
+          };
+        });
+
+        if (timing) {
+          result.total.domContentLoaded = timing.domContentLoaded > 0 ? timing.domContentLoaded : null;
+          result.total.domComplete = timing.domComplete > 0 ? timing.domComplete : null;
+        }
+
+        // Get final CDP metrics
+        const endMetrics = await getCdpMetrics();
+        if (endMetrics) {
+          result.total.jsHeapUsedSize = endMetrics.jsHeapUsedSize || null;
+          result.total.scriptDuration = endMetrics.scriptDuration || null;
+          result.total.layoutDuration = endMetrics.layoutDuration || null;
+          result.total.recalcStyleDuration = endMetrics.recalcStyleDuration || null;
+          result.total.taskDuration = endMetrics.taskDuration || null;
+
+          // Compute deltas for measurement period
+          if (startSnapshot) {
+            const computeDelta = (metric) => {
+              const delta = endMetrics[metric] - startSnapshot[metric];
+              if (delta < 0) console.warn(`[${id}] Negative delta for "${metric}" (${startSnapshot[metric]} → ${endMetrics[metric]}), clamping to 0`);
+              return Math.max(0, delta);
+            };
+            result.measured.scriptDuration = computeDelta('scriptDuration');
+            result.measured.layoutDuration = computeDelta('layoutDuration');
+            result.measured.recalcStyleDuration = computeDelta('recalcStyleDuration');
+            result.measured.taskDuration = computeDelta('taskDuration');
+          }
+        }
+      } catch (error) {
+        console.error(`[${id}] Warning: failed to collect metrics: ${error.message}`);
+      }
+
+      return result;
+    },
+
+    /**
+     * Detach the CDP session.
+     */
+    async detach() {
+      try {
+        if (client) await client.detach();
+      } catch {}
+    }
+  };
+}
+
+/**
+ * Remap click timestamps to match trimmed video segments.
+ * Adjusts timestamps so they're relative to the start of the trimmed video.
+ */
+function remapClickTimestamps(clickEvents, segments) {
+  if (segments.length === 0) return clickEvents;
+
+  const adjusted = [];
+  let offset = 0;
+  for (const seg of segments) {
+    for (const evt of clickEvents) {
+      if (evt.timestamp >= seg.start && evt.timestamp <= seg.end) {
+        adjusted.push({ ...evt, timestamp: offset + (evt.timestamp - seg.start) });
+      }
+    }
+    offset += seg.end - seg.start;
+  }
+  return adjusted;
 }
 
 // --- Script execution ---
@@ -351,6 +491,7 @@ function sanitizeScript(script) {
  *   page.raceEnd(name)                — stop the stopwatch (sync: just arithmetic)
  *   await page.raceRecordingStart()   — manually start a video segment (async: syncs)
  *   page.raceRecordingEnd()           — manually end a video segment (sync)
+ *   page.raceMessage(text)            — send a message to the CLI terminal (sync)
  *
  * raceStart/raceEnd are async/sync respectively because starting requires
  * synchronizing both browsers at the starting line (via SyncBarrier), while
@@ -361,7 +502,7 @@ function sanitizeScript(script) {
  *
  * Returns { segments, measurements } for video trimming and result comparison.
  */
-async function runMarkerMode(page, context, config, barriers, isParallel, sharedState, recordingStartTime) {
+async function runMarkerMode(page, context, config, barriers, isParallel, sharedState, recordingStartTime, noOverlay = false, metricsCollector = null) {
   const { id, script: raceScript } = config;
 
   const segments = [];
@@ -370,11 +511,11 @@ async function runMarkerMode(page, context, config, barriers, isParallel, shared
   const activeMeasurements = {};
 
   // --- Visual cues for frame-accurate video trimming ---
-  // Place a small colored pixel in the top-left corner so ffprobe can detect cut points.
+  // Place a colored square in the top-left corner so ffprobe can detect cut points.
   const CUE_COLOR_START = '#00FF00';
   const CUE_COLOR_END = '#FF0000';
   const CUE_DURATION_MS = 300;
-  const CUE_SIZE = 10; // px — small enough to be invisible, large enough for detection
+  const CUE_SIZE = 30; // px — large enough for reliable detection
 
   const flashCue = async (color) => {
     await page.evaluate(({ c, size }) => {
@@ -392,6 +533,7 @@ async function runMarkerMode(page, context, config, barriers, isParallel, shared
   };
 
   const showRecordingIndicator = async () => {
+    if (noOverlay) return;
     await page.evaluate(() => {
       const el = document.createElement('div');
       el.id = '__race_rec_indicator';
@@ -404,6 +546,7 @@ async function runMarkerMode(page, context, config, barriers, isParallel, shared
   };
 
   const showFinishTime = (duration) => {
+    if (noOverlay) return;
     page.evaluate((t) => {
       const el = document.getElementById('__race_rec_indicator');
       if (!el) return;
@@ -413,6 +556,7 @@ async function runMarkerMode(page, context, config, barriers, isParallel, shared
   };
 
   const hideRecordingIndicator = async () => {
+    if (noOverlay) return;
     await page.evaluate(() => {
       const el = document.getElementById('__race_rec_indicator');
       if (el) el.remove();
@@ -421,19 +565,42 @@ async function runMarkerMode(page, context, config, barriers, isParallel, shared
 
   const showMedal = async () => {
     if (!sharedState) return;
-    sharedState.finishOrder.push(id);
-    const place = sharedState.finishOrder.length;
-    const medal = place === 1 ? '🥇' : '🥈';
-    await page.evaluate(({ medal, place }) => {
-      const el = document.createElement('div');
-      el.id = '__race_medal';
-      el.textContent = medal + ' ' + (place === 1 ? '1st' : '2nd');
-      el.style.cssText = 'position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:2147483647;'
-        + 'font:bold 64px/1 system-ui,sans-serif;pointer-events:none;'
-        + 'background:rgba(0,0,0,0.6);color:#fff;padding:24px 48px;border-radius:16px';
-      document.body.appendChild(el);
-    }, { medal, place });
-    await page.waitForTimeout(1500);
+    // Record finish with actual measurement end time for accurate ranking
+    const lastMeasurement = measurements[measurements.length - 1];
+    const endTime = lastMeasurement ? lastMeasurement.endTime : (Date.now() - recordingStartTime) / 1000;
+    sharedState.finishOrder.push({ id, endTime });
+    if (noOverlay) return;
+
+    if (isParallel) {
+      // Parallel mode: show placement medals based on actual end times
+      const sorted = [...sharedState.finishOrder].sort((a, b) => a.endTime - b.endTime);
+      const place = sorted.findIndex(f => f.id === id) + 1;
+      const medals = ['🥇', '🥈', '🥉', '4️⃣', '5️⃣'];
+      const ordinals = ['1st', '2nd', '3rd', '4th', '5th'];
+      const medal = medals[place - 1] || `${place}`;
+      const ordinal = ordinals[place - 1] || `${place}th`;
+      await page.evaluate(({ medal, ordinal }) => {
+        const el = document.createElement('div');
+        el.id = '__race_medal';
+        el.textContent = medal + ' ' + ordinal;
+        el.style.cssText = 'position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:2147483647;'
+          + 'font:bold 64px/1 system-ui,sans-serif;pointer-events:none;'
+          + 'background:rgba(0,0,0,0.6);color:#fff;padding:24px 48px;border-radius:16px';
+        document.body.appendChild(el);
+      }, { medal, ordinal });
+    } else {
+      // Sequential mode: just show finish flag (no placement since they don't race simultaneously)
+      await page.evaluate(() => {
+        const el = document.createElement('div');
+        el.id = '__race_medal';
+        el.textContent = '🏁';
+        el.style.cssText = 'position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:2147483647;'
+          + 'font:bold 80px/1 system-ui,sans-serif;pointer-events:none;'
+          + 'background:rgba(0,0,0,0.6);color:#fff;padding:24px 48px;border-radius:16px';
+        document.body.appendChild(el);
+      });
+    }
+    await page.waitForTimeout(MEDAL_DISPLAY_MS);
   };
 
   const startRecording = async () => {
@@ -442,8 +609,9 @@ async function runMarkerMode(page, context, config, barriers, isParallel, shared
       const result = await barriers.recordingStart.wait(`${id} startRecording`);
       if (result?.aborted) return;
     }
-    await flashCue(CUE_COLOR_START);
+    // Show REC indicator BEFORE the green cue so it's visible when trimming starts
     await showRecordingIndicator();
+    await flashCue(CUE_COLOR_START);
     currentSegmentStart = (Date.now() - recordingStartTime) / 1000;
   };
 
@@ -461,7 +629,10 @@ async function runMarkerMode(page, context, config, barriers, isParallel, shared
     return stopPromise;
   };
 
+  let raceStartTime = null;
+
   const startMeasure = (name = 'default') => {
+    if (raceStartTime === null) raceStartTime = Date.now();
     activeMeasurements[name] = (Date.now() - recordingStartTime) / 1000;
   };
 
@@ -479,6 +650,15 @@ async function runMarkerMode(page, context, config, barriers, isParallel, shared
   let hasExplicitRecording = false;
   let autoRecordingStarted = false;
 
+  page.raceMessage = (text) => {
+    if (text == null) {
+      text = '';
+    } else if (typeof text !== 'string') {
+      text = String(text);
+    }
+    const elapsed = raceStartTime ? ((Date.now() - raceStartTime) / 1000).toFixed(1) : '0.0';
+    console.error(`[${id}] __raceMessage__[${elapsed}]:${text}`);
+  };
   page.raceRecordingStart = async () => { hasExplicitRecording = true; await startRecording(); };
   page.raceRecordingEnd = async () => { hasExplicitRecording = true; await stopRecording(); };
   page.raceStart = async (name = 'default') => {
@@ -486,9 +666,20 @@ async function runMarkerMode(page, context, config, barriers, isParallel, shared
       autoRecordingStarted = true;
       await startRecording();
     }
+    // Start metrics measurement on first raceStart
+    if (metricsCollector && raceStartTime === null) {
+      await metricsCollector.startMeasurement();
+    }
     startMeasure(name);
   };
-  page.raceEnd = (name = 'default') => endMeasure(name);
+  page.raceEnd = (name = 'default') => {
+    const duration = endMeasure(name);
+    // Stop metrics measurement when the last measurement ends
+    if (metricsCollector && Object.keys(activeMeasurements).length === 0) {
+      metricsCollector.stopMeasurement();
+    }
+    return duration;
+  };
 
   if (isParallel && barriers) {
     const result = await barriers.ready.wait(`${id} ready`);
@@ -499,6 +690,8 @@ async function runMarkerMode(page, context, config, barriers, isParallel, shared
 
   if (!raceScript || raceScript.trim() === '') return { segments: [], measurements: [] };
 
+  // SECURITY: Race scripts execute with the full privileges of this Node.js
+  // process. Only run scripts you trust — this is equivalent to `node <file>`.
   const sanitized = sanitizeScript(raceScript);
   try {
     const AsyncFunction = Object.getPrototypeOf(async function(){}).constructor;
@@ -516,7 +709,7 @@ async function runMarkerMode(page, context, config, barriers, isParallel, shared
     await barriers.stop.wait(`${id} finished`);
   }
 
-  await page.waitForTimeout(500);
+  await page.waitForTimeout(POST_RACE_WAIT_MS);
   return { segments, measurements };
 }
 
@@ -546,13 +739,91 @@ async function applyThrottling(page, throttle, id) {
   }
 }
 
+// --- Window layout calculation for N browsers ---
+
+/**
+ * Calculate window position and size for browser at given index.
+ * For 2 browsers: side-by-side horizontally
+ * For 3 browsers: 3 across
+ * For 4 browsers: 2x2 grid
+ * For 5 browsers: 3 on top, 2 on bottom
+ */
+function calculateWindowLayout(index, total) {
+  const { width: screenWidth, height: screenHeight } = SCREEN;
+
+  if (total <= 2) {
+    // Side by side
+    const width = Math.floor(screenWidth / 2);
+    return { x: index * width, y: 0, width, height: WINDOW_HEIGHT };
+  } else if (total === 3) {
+    // 3 across
+    const width = Math.floor(screenWidth / 3);
+    return { x: index * width, y: 0, width, height: WINDOW_HEIGHT };
+  } else if (total === 4) {
+    // 2x2 grid
+    const width = Math.floor(screenWidth / 2);
+    const height = Math.floor(screenHeight / 2);
+    const row = Math.floor(index / 2);
+    const col = index % 2;
+    return { x: col * width, y: row * height, width, height };
+  } else {
+    // 5 browsers: 3 on top, 2 on bottom (centered)
+    const width = Math.floor(screenWidth / 3);
+    const height = Math.floor(screenHeight / 2);
+    if (index < 3) {
+      // Top row: 3 browsers
+      return { x: index * width, y: 0, width, height };
+    } else {
+      // Bottom row: 2 browsers, centered
+      const bottomOffset = Math.floor(width / 2);
+      return { x: bottomOffset + (index - 3) * width, y: height, width, height };
+    }
+  }
+}
+
+// --- Profiling & trimming helpers ---
+
+async function startProfiling(page, browser, id) {
+  const metricsCollector = await setupMetricsCollection(page, id);
+  await browser.startTracing(page, { screenshots: true, categories: ['devtools.timeline'] });
+  return metricsCollector;
+}
+
+async function collectProfilingResults(browser, metricsCollector, outputDir, id) {
+  let profileMetrics = null;
+  if (metricsCollector) {
+    profileMetrics = await metricsCollector.collect();
+    await metricsCollector.detach();
+  }
+  const traceBuffer = await browser.stopTracing();
+  const tracePath = path.join(outputDir, `${id}.trace.json`);
+  fs.writeFileSync(tracePath, traceBuffer);
+  console.error(`[${id}] Performance trace saved: ${tracePath}`);
+  return { tracePath, profileMetrics };
+}
+
+function trimVideoWithFfmpeg(outputDir, markerSegments, id) {
+  const videoFile = getMostRecentVideo(outputDir);
+  if (!videoFile) return null;
+  const videoPath = path.join(outputDir, videoFile);
+  const { startCues, endCues, frameDuration } = detectCueFrames(videoPath);
+  const segments = cueSegments(startCues, endCues, frameDuration);
+  const trimSegments = segments.length > 0 ? segments : markerSegments;
+  if (segments.length === 0 && markerSegments.length > 0) {
+    console.error(`[${id}] Cue detection failed, using marker segments`);
+  }
+  const res = extractSegments(videoPath, trimSegments, id);
+  return path.basename(res.fullPath);
+}
+
 // --- Single browser recording flow ---
 
 /**
  * Launch one browser, run the race script, record video, collect results.
- * Called twice (once per racer) by runParallel or runSequential.
+ * Called N times (once per racer) by runParallel or runSequential.
  */
-async function runBrowserRecording(config, barriers, isParallel, sharedState, browserIndex = 0, throttle = null, profile = false, slowmo = 0) {
+async function runBrowserRecording(config, barriers, isParallel, sharedState, opts = {}) {
+  const { browserIndex = 0, totalBrowsers = 2, throttle = null, profile = false, slowmo = 0, noOverlay = false, ffmpeg = false } = opts;
   const { id, headless } = config;
   const outputDir = path.join(__dirname, 'recordings', id);
   let browser = null;
@@ -562,20 +833,19 @@ async function runBrowserRecording(config, barriers, isParallel, sharedState, br
   fs.mkdirSync(outputDir, { recursive: true });
   cleanupOldVideos(outputDir);
 
-  const windowWidth = 960;
-  const windowHeight = 800;
+  const layout = calculateWindowLayout(browserIndex, totalBrowsers);
   const windowArgs = isParallel
-    ? [`--window-position=${browserIndex === 0 ? 0 : windowWidth},0`, `--window-size=${windowWidth},${windowHeight}`]
+    ? [`--window-position=${layout.x},${layout.y}`, `--window-size=${layout.width},${layout.height}`]
     : [];
 
   try {
     const launchOpts = { headless: headless || false, args: windowArgs };
-    if (slowmo > 0) launchOpts.slowMo = slowmo * 20;
+    if (slowmo > 0) launchOpts.slowMo = slowmo * SLOWMO_MULTIPLIER;
     browser = await chromium.launch(launchOpts);
     activeBrowsers.push(browser);
 
-    const viewportWidth = isParallel ? windowWidth - 20 : 1280;
-    const viewportHeight = isParallel ? windowHeight - 100 : 720;
+    const viewportWidth = isParallel ? layout.width - 20 : 1280;
+    const viewportHeight = isParallel ? layout.height - 100 : 720;
     const videoScale = slowmo > 0 ? 2 : 1;
     context = await browser.newContext({
       recordVideo: { dir: outputDir, size: { width: viewportWidth * videoScale, height: viewportHeight * videoScale } },
@@ -585,63 +855,40 @@ async function runBrowserRecording(config, barriers, isParallel, sharedState, br
     activeContexts.push(context);
 
     const page = await context.newPage();
-    page.setDefaultTimeout(90000);
-    page.setDefaultNavigationTimeout(90000);
+    page.setDefaultTimeout(PAGE_TIMEOUT_MS);
+    page.setDefaultNavigationTimeout(PAGE_TIMEOUT_MS);
 
-    await setupClickVisualizer(context, recordingStartTime);
+    await setupClickTracker(context, recordingStartTime);
     await applyThrottling(page, throttle, id);
 
-    if (profile) {
-      await browser.startTracing(page, { screenshots: true, categories: ['devtools.timeline'] });
-    }
+    const metricsCollector = profile ? await startProfiling(page, browser, id) : null;
 
-    const result = await runMarkerMode(page, context, config, barriers, isParallel, sharedState, recordingStartTime);
+    const result = await runMarkerMode(page, context, config, barriers, isParallel, sharedState, recordingStartTime, noOverlay, metricsCollector);
     const markerSegments = result?.segments || [];
     const measurements = result?.measurements || [];
 
     let tracePath = null;
+    let profileMetrics = null;
     if (profile) {
-      const traceBuffer = await browser.stopTracing();
-      tracePath = path.join(outputDir, `${id}.trace.json`);
-      fs.writeFileSync(tracePath, traceBuffer);
-      console.error(`[${id}] Performance trace saved: ${tracePath}`);
+      const profiling = await collectProfilingResults(browser, metricsCollector, outputDir, id);
+      tracePath = profiling.tracePath;
+      profileMetrics = profiling.profileMetrics;
     }
 
-    // Adjust click timestamps to match trimmed video segments
     const clickEvents = await getClickEvents(page);
-    let adjustedClicks;
-    if (markerSegments.length > 0) {
-      adjustedClicks = [];
-      let offset = 0;
-      for (const seg of markerSegments) {
-        for (const evt of clickEvents) {
-          if (evt.timestamp >= seg.start && evt.timestamp <= seg.end) {
-            adjustedClicks.push({ ...evt, timestamp: offset + (evt.timestamp - seg.start) });
-          }
-        }
-        offset += seg.end - seg.start;
-      }
-    } else {
-      adjustedClicks = clickEvents;
-    }
+    const adjustedClicks = remapClickTimestamps(clickEvents, markerSegments);
 
     await context.close();
-    activeContexts = activeContexts.filter(c => c !== context);
+    activeContexts = activeContexts.filter(ctx => ctx !== context);
     context = null;
     console.error(`[${id}] Context closed`);
 
     let fullVideoFile = null;
-    if (markerSegments.length > 0) {
-      const videoFile = getMostRecentVideo(outputDir);
-      if (videoFile) {
-        const videoPath = path.join(outputDir, videoFile);
-        // Use visual cue detection for frame-accurate trimming
-        const { startCues, endCues, frameDuration } = detectCueFrames(videoPath);
-        const segments = cueSegments(startCues, endCues, frameDuration);
-        const trimSegments = segments.length > 0 ? segments : markerSegments;
-        const res = extractSegments(videoPath, trimSegments, id);
-        fullVideoFile = path.basename(res.fullPath);
-      }
+    const recordingSegments = markerSegments;
+    if (markerSegments.length > 0 && ffmpeg) {
+      fullVideoFile = trimVideoWithFfmpeg(outputDir, markerSegments, id);
+    } else if (markerSegments.length > 0) {
+      console.error(`[${id}] Skipping video trimming (no --ffmpeg)`);
     }
 
     await browser.close();
@@ -656,6 +903,8 @@ async function runBrowserRecording(config, barriers, isParallel, sharedState, br
       tracePath: tracePath ? path.join(id, path.basename(tracePath)) : null,
       clickEvents: adjustedClicks,
       measurements,
+      profileMetrics,
+      recordingSegments: recordingSegments.length > 0 ? recordingSegments : null,
       error: null
     };
   } catch (e) {
@@ -679,42 +928,51 @@ async function runBrowserRecording(config, barriers, isParallel, sharedState, br
     tracePath: null,
     clickEvents: [],
     measurements: [],
+    profileMetrics: null,
+    recordingSegments: null,
     error: error ? error.message : null
   };
 }
 
 // --- Execution modes ---
 
-async function runParallel(browser1Config, browser2Config, throttle, profile, slowmo) {
+async function runParallel(browserConfigs, opts = {}) {
+  const count = browserConfigs.length;
   const sharedState = { hasError: false, errorMessage: null, finishOrder: [] };
   const barriers = {
-    ready: new SyncBarrier(2, sharedState),
-    recordingStart: new SyncBarrier(2, sharedState),
-    stop: new SyncBarrier(2, sharedState)
+    ready: new SyncBarrier(count, sharedState),
+    recordingStart: new SyncBarrier(count, sharedState),
+    stop: new SyncBarrier(count, sharedState)
   };
 
-  const results = await Promise.allSettled([
-    runBrowserRecording(browser1Config, barriers, true, sharedState, 0, throttle, profile, slowmo),
-    runBrowserRecording(browser2Config, barriers, true, sharedState, 1, throttle, profile, slowmo)
-  ]);
+  const promises = browserConfigs.map((config, i) =>
+    runBrowserRecording(config, barriers, true, sharedState, { ...opts, browserIndex: i, totalBrowsers: count })
+  );
+
+  const results = await Promise.allSettled(promises);
 
   return results.map((r, i) => {
     if (r.status === 'fulfilled') return r.value;
-    const id = i === 0 ? browser1Config.id : browser2Config.id;
-    return { id, videoPath: null, error: r.reason?.message || 'Unknown error' };
+    return { id: browserConfigs[i].id, videoPath: null, error: r.reason?.message || 'Unknown error' };
   });
 }
 
-async function runSequential(browser1Config, browser2Config, throttle, profile, slowmo) {
+async function runSequential(browserConfigs, opts = {}) {
   const sharedState = { hasError: false, errorMessage: null, finishOrder: [] };
-  const r1 = await runBrowserRecording(browser1Config, null, false, sharedState, 0, throttle, profile, slowmo);
-  const r2 = await runBrowserRecording(browser2Config, null, false, sharedState, 1, throttle, profile, slowmo);
-  return [r1, r2];
+  const results = [];
+  for (let i = 0; i < browserConfigs.length; i++) {
+    const result = await runBrowserRecording(browserConfigs[i], null, false, sharedState, { ...opts, browserIndex: i, totalBrowsers: browserConfigs.length });
+    results.push(result);
+  }
+  return results;
 }
 
 // --- Main entry point ---
 
 async function main() {
+  // Load shared constants from ESM module
+  await loadConstants();
+
   const configJson = process.argv[2];
   if (!configJson) { console.error('Error: Config JSON required'); process.exit(1); }
 
@@ -722,37 +980,40 @@ async function main() {
   try { config = JSON.parse(configJson); }
   catch (e) { console.error('Error: Invalid JSON:', e.message); process.exit(1); }
 
-  const { browser1, browser2, executionMode, throttle, headless, profile, slowmo } = config;
-  browser1.headless = headless || false;
-  browser2.headless = headless || false;
+  const { browsers, executionMode, throttle, headless, profile, slowmo, noOverlay, ffmpeg } = config;
+  const runOpts = { throttle, profile, slowmo, noOverlay, ffmpeg };
+
+  // Set headless flag on all browser configs
+  for (const browser of browsers) {
+    browser.headless = headless || false;
+  }
 
   fs.mkdirSync(path.join(__dirname, 'recordings'), { recursive: true });
 
   let results;
   try {
     results = executionMode === 'parallel'
-      ? await runParallel(browser1, browser2, throttle, profile, slowmo)
-      : await runSequential(browser1, browser2, throttle, profile, slowmo);
+      ? await runParallel(browsers, runOpts)
+      : await runSequential(browsers, runOpts);
   } catch (error) {
-    results = [
-      { id: browser1.id, videoPath: null, error: error.message },
-      { id: browser2.id, videoPath: null, error: error.message }
-    ];
+    results = browsers.map(b => ({ id: b.id, videoPath: null, error: error.message }));
   }
 
   const errors = results.filter(r => r.error).map(r => `${r.id}: ${r.error}`);
 
+  // Output in new array-based format
   console.log(JSON.stringify({
-    browser1Video: results[0]?.videoPath || null,
-    browser2Video: results[1]?.videoPath || null,
-    browser1FullVideo: results[0]?.fullVideoPath || null,
-    browser2FullVideo: results[1]?.fullVideoPath || null,
-    browser1Trace: results[0]?.tracePath || null,
-    browser2Trace: results[1]?.tracePath || null,
-    browser1ClickEvents: results[0]?.clickEvents || [],
-    browser2ClickEvents: results[1]?.clickEvents || [],
-    browser1Measurements: results[0]?.measurements || [],
-    browser2Measurements: results[1]?.measurements || [],
+    browsers: results.map(r => ({
+      id: r.id,
+      videoPath: r.videoPath || null,
+      fullVideoPath: r.fullVideoPath || null,
+      tracePath: r.tracePath || null,
+      clickEvents: r.clickEvents || [],
+      measurements: r.measurements || [],
+      profileMetrics: r.profileMetrics || null,
+      recordingSegments: r.recordingSegments || null,
+      error: r.error || null
+    })),
     errors: errors.length > 0 ? errors : undefined
   }));
 
@@ -761,6 +1022,6 @@ async function main() {
 
 main().catch(err => {
   console.error('Fatal error:', err);
-  console.log(JSON.stringify({ browser1Video: null, browser2Video: null, errors: [err.message] }));
+  console.log(JSON.stringify({ browsers: [], errors: [err.message] }));
   process.exit(1);
 });

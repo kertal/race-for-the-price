@@ -40,16 +40,55 @@ describe('racer file discovery', () => {
     fs.writeFileSync(path.join(tmpDir, 'gamma.js'), '');
 
     const { racerFiles } = discoverRacers(tmpDir);
-    expect(racerFiles.length).toBe(2);
+    // Falls back to all .js files including the .spec.js
+    expect(racerFiles.length).toBe(3);
+    expect(racerFiles).toEqual(['alpha.spec.js', 'beta.js', 'gamma.js']);
   });
 
-  it('limits to first two files when more than 2 found', () => {
+  it('allows 3 racers when 3 spec files found', () => {
     fs.writeFileSync(path.join(tmpDir, 'a.spec.js'), '');
     fs.writeFileSync(path.join(tmpDir, 'b.spec.js'), '');
     fs.writeFileSync(path.join(tmpDir, 'c.spec.js'), '');
 
-    const { racerFiles } = discoverRacers(tmpDir);
-    expect(racerFiles).toEqual(['a.spec.js', 'b.spec.js']);
+    const { racerFiles, racerNames } = discoverRacers(tmpDir);
+    expect(racerFiles).toEqual(['a.spec.js', 'b.spec.js', 'c.spec.js']);
+    expect(racerNames).toEqual(['a', 'b', 'c']);
+  });
+
+  it('allows 4 racers when 4 spec files found', () => {
+    fs.writeFileSync(path.join(tmpDir, 'a.spec.js'), '');
+    fs.writeFileSync(path.join(tmpDir, 'b.spec.js'), '');
+    fs.writeFileSync(path.join(tmpDir, 'c.spec.js'), '');
+    fs.writeFileSync(path.join(tmpDir, 'd.spec.js'), '');
+
+    const { racerFiles, racerNames } = discoverRacers(tmpDir);
+    expect(racerFiles).toEqual(['a.spec.js', 'b.spec.js', 'c.spec.js', 'd.spec.js']);
+    expect(racerNames).toEqual(['a', 'b', 'c', 'd']);
+  });
+
+  it('allows 5 racers when 5 spec files found', () => {
+    fs.writeFileSync(path.join(tmpDir, 'a.spec.js'), '');
+    fs.writeFileSync(path.join(tmpDir, 'b.spec.js'), '');
+    fs.writeFileSync(path.join(tmpDir, 'c.spec.js'), '');
+    fs.writeFileSync(path.join(tmpDir, 'd.spec.js'), '');
+    fs.writeFileSync(path.join(tmpDir, 'e.spec.js'), '');
+
+    const { racerFiles, racerNames } = discoverRacers(tmpDir);
+    expect(racerFiles).toEqual(['a.spec.js', 'b.spec.js', 'c.spec.js', 'd.spec.js', 'e.spec.js']);
+    expect(racerNames).toEqual(['a', 'b', 'c', 'd', 'e']);
+  });
+
+  it('limits to first 5 files when more than 5 found', () => {
+    fs.writeFileSync(path.join(tmpDir, 'a.spec.js'), '');
+    fs.writeFileSync(path.join(tmpDir, 'b.spec.js'), '');
+    fs.writeFileSync(path.join(tmpDir, 'c.spec.js'), '');
+    fs.writeFileSync(path.join(tmpDir, 'd.spec.js'), '');
+    fs.writeFileSync(path.join(tmpDir, 'e.spec.js'), '');
+    fs.writeFileSync(path.join(tmpDir, 'f.spec.js'), '');
+
+    const { racerFiles, racerNames } = discoverRacers(tmpDir);
+    expect(racerFiles).toEqual(['a.spec.js', 'b.spec.js', 'c.spec.js', 'd.spec.js', 'e.spec.js']);
+    expect(racerNames).toEqual(['a', 'b', 'c', 'd', 'e']);
   });
 
   it('sorts files alphabetically', () => {
@@ -87,17 +126,22 @@ describe('racer file discovery', () => {
 
 describe('argument parsing', () => {
   it('separates positional args from flags', () => {
-    const { positional, boolFlags, kvFlags } = parseArgs(['./races/test', '--sequential', '--network=slow-3g']);
+    const { positional, boolFlags, kvFlags } = parseArgs(['./races/test', '--parallel', '--network=slow-3g']);
     expect(positional).toEqual(['./races/test']);
-    expect(boolFlags.has('sequential')).toBe(true);
+    expect(boolFlags.has('parallel')).toBe(true);
     expect(kvFlags.network).toBe('slow-3g');
   });
 
   it('handles multiple boolean flags', () => {
-    const { boolFlags } = parseArgs(['dir', '--sequential', '--headless', '--results']);
-    expect(boolFlags.has('sequential')).toBe(true);
+    const { boolFlags } = parseArgs(['dir', '--parallel', '--headless', '--results']);
+    expect(boolFlags.has('parallel')).toBe(true);
     expect(boolFlags.has('headless')).toBe(true);
     expect(boolFlags.has('results')).toBe(true);
+  });
+
+  it('parses --no-overlay flag', () => {
+    const { boolFlags } = parseArgs(['dir', '--no-overlay']);
+    expect(boolFlags.has('no-overlay')).toBe(true);
   });
 
   it('handles key=value flags', () => {
@@ -120,9 +164,9 @@ describe('argument parsing', () => {
 });
 
 describe('settings override', () => {
-  it('CLI --sequential overrides parallel setting', () => {
-    const s = applyOverrides({ parallel: true }, new Set(['sequential']), {});
-    expect(s.parallel).toBe(false);
+  it('CLI --parallel overrides sequential default', () => {
+    const s = applyOverrides({}, new Set(['parallel']), {});
+    expect(s.parallel).toBe(true);
   });
 
   it('CLI --headless sets headless', () => {
@@ -145,6 +189,21 @@ describe('settings override', () => {
     expect(s.profile).toBe(true);
   });
 
+  it('CLI --no-profile disables profile', () => {
+    const s = applyOverrides({ profile: true }, new Set(['no-profile']), {});
+    expect(s.profile).toBe(false);
+  });
+
+  it('CLI --profile and --no-profile together warns and disables profile', () => {
+    const s = applyOverrides({}, new Set(['profile', 'no-profile']), {});
+    expect(s.profile).toBe(false);
+  });
+
+  it('CLI --no-overlay sets noOverlay', () => {
+    const s = applyOverrides({}, new Set(['no-overlay']), {});
+    expect(s.noOverlay).toBe(true);
+  });
+
   it('CLI --slowmo sets slowmo factor', () => {
     const s = applyOverrides({}, new Set(), { slowmo: '3' });
     expect(s.slowmo).toBe(3);
@@ -157,8 +216,8 @@ describe('settings override', () => {
   });
 
   it('does not mutate original settings', () => {
-    const orig = { parallel: true };
-    applyOverrides(orig, new Set(['sequential']), {});
-    expect(orig.parallel).toBe(true);
+    const orig = { parallel: false };
+    applyOverrides(orig, new Set(['parallel']), {});
+    expect(orig.parallel).toBe(false);
   });
 });

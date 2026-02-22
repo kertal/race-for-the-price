@@ -16,6 +16,7 @@
   ],
   "scripts": {
     "test": "vitest run",
+    "test:integration": "vitest run --config vitest.integration.config.js",
     "race": "node race.js"
   },
   "keywords": [
