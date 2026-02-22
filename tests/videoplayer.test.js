@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
@@ -585,18 +585,18 @@ describe('copyFFmpegFiles', () => {
     }
   });
 
-  it('logs specific source/destination on copy failure', () => {
+  it('returns false and logs warning on copy failure', () => {
     const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'race-test-'));
-    const readOnlyDir = path.join(tmpDir, 'readonly');
-    fs.mkdirSync(readOnlyDir);
-    fs.chmodSync(readOnlyDir, 0o444);
+    const blocker = path.join(tmpDir, 'blocker');
+    fs.writeFileSync(blocker, '');          // regular file blocks mkdir inside it
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
     try {
-      const result = copyFFmpegFiles(readOnlyDir);
-      if (!result) {
-        expect(fs.existsSync(path.join(readOnlyDir, 'ffmpeg'))).toBe(false);
-      }
+      const result = copyFFmpegFiles(blocker);
+      expect(result).toBe(false);
+      expect(spy).toHaveBeenCalledOnce();
+      expect(spy.mock.calls[0][0]).toContain('Could not copy ffmpeg.wasm files');
     } finally {
-      fs.chmodSync(readOnlyDir, 0o755);
+      spy.mockRestore();
       fs.rmSync(tmpDir, { recursive: true, force: true });
     }
   });
