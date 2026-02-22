@@ -141,7 +141,7 @@ describe('buildSummary', () => {
       { measurements: [], clickEvents: [], videoPath: null, fullVideoPath: null, error: null },
       { measurements: [], clickEvents: [], videoPath: null, fullVideoPath: null, error: null },
     ];
-    const summary = buildSummary(names, results, {}, '/tmp/results');
+    const summary = buildSummary(names, results, {}, 'test-results');
 
     expect(summary.machineInfo).toBeDefined();
     expect(summary.machineInfo).toHaveProperty('platform');
@@ -327,12 +327,12 @@ describe('buildMedianSummary', () => {
     const summaries = makeSummaries();
     const info = { platform: 'darwin', arch: 'arm64', osRelease: '24.1.0', cpuModel: 'M2', cpuCores: 8, totalMemoryMB: 16384, nodeVersion: 'v20.11.0' };
     summaries[1].machineInfo = info;
-    const median = buildMedianSummary(summaries, '/tmp/results');
+    const median = buildMedianSummary(summaries, 'test-results');
     expect(median.machineInfo).toEqual(info);
   });
 
   it('returns undefined machineInfo when no summary has it', () => {
-    const median = buildMedianSummary(makeSummaries(), '/tmp/results');
+    const median = buildMedianSummary(makeSummaries(), 'test-results');
     expect(median.machineInfo).toBeUndefined();
   });
 
