@@ -281,7 +281,7 @@ describe('buildPlayerHtml race info', () => {
   });
 });
 
-// --- Machine Info section ---
+// --- Machine Info in Race Info section ---
 
 describe('buildPlayerHtml machine info', () => {
   const machineInfo = {
@@ -294,9 +294,9 @@ describe('buildPlayerHtml machine info', () => {
     nodeVersion: 'v20.11.0',
   };
 
-  it('shows machine info table when provided', () => {
+  it('shows machine info in race info table when provided', () => {
     const html = buildPlayerHtml(abSummary({ machineInfo }), abVideoFiles);
-    expect(html).toContain('machine-info');
+    expect(html).toContain('race-info');
     expect(html).toContain('Linux');
     expect(html).toContain('5.15.0');
     expect(html).toContain('x64');
@@ -306,8 +306,10 @@ describe('buildPlayerHtml machine info', () => {
     expect(html).toContain('v20.11.0');
   });
 
-  it('omits machine info section when not provided', () => {
-    expect(buildPlayerHtml(abSummary(), abVideoFiles)).not.toContain('<div class="machine-info">');
+  it('omits machine info rows when not provided', () => {
+    const html = buildPlayerHtml(abSummary(), abVideoFiles);
+    expect(html).not.toContain('CPU');
+    expect(html).not.toContain('Memory');
   });
 
   it('HTML-escapes values', () => {
