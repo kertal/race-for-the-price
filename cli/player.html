@@ -88,6 +88,21 @@
   .race-info td:first-child {
     color: #888;
   }
+  .machine-info {
+    max-width: 900px;
+    width: 100%;
+    padding: 0 1.5rem 0.8rem;
+  }
+  .machine-info table {
+    border-collapse: collapse;
+    font-size: 0.85rem;
+  }
+  .machine-info td {
+    padding: 0.15rem 0.8rem 0.15rem 0;
+  }
+  .machine-info td:first-child {
+    color: #888;
+  }
   .errors {
     max-width: 900px;
     width: 100%;
@@ -247,6 +262,28 @@
     color: #777;
     font-size: 0.8rem;
     margin-bottom: 1rem;
+  }
+  .profile-scope-desc {
+    color: #888;
+    font-size: 0.78rem;
+    font-style: italic;
+    margin: -0.2rem 0 0.8rem;
+  }
+  .profile-category-desc {
+    color: #777;
+    font-size: 0.75rem;
+    margin: -0.2rem 0 0.5rem;
+  }
+  .profile-metric-desc {
+    color: #777;
+    font-size: 0.73rem;
+    margin: 0 0 0.2rem 0;
+    line-height: 1.4;
+  }
+  .profile-info-icon {
+    color: #666;
+    font-size: 0.7rem;
+    cursor: help;
   }
   .section h3 {
     color: #e8e0d0;
@@ -552,6 +589,7 @@
 <div class="winner-banner">{{winnerBanner}}</div>
 {{videoSourceNote}}
 {{raceInfo}}
+{{machineInfo}}
 {{errors}}
 {{modeToggle}}
 
