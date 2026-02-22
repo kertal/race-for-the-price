@@ -8,6 +8,12 @@ import path from 'path';
 import { c, RACER_COLORS } from './colors.js';
 import { buildProfileComparison, printProfileAnalysis, buildProfileMarkdown } from './profile-analysis.js';
 
+const PLATFORM_NAMES = { darwin: 'macOS', linux: 'Linux', win32: 'Windows' };
+
+export function formatPlatform(platform) {
+  return PLATFORM_NAMES[platform] || platform;
+}
+
 /**
  * Collect machine information about the host running the race.
  */
@@ -277,9 +283,7 @@ export function buildMarkdownSummary(summary, sideBySideName) {
     if (settings.runs && settings.runs > 1) lines.push(`| **Runs** | ${settings.runs} |`);
   }
   if (machineInfo) {
-    const platformNames = { darwin: 'macOS', linux: 'Linux', win32: 'Windows' };
-    const platform = platformNames[machineInfo.platform] || machineInfo.platform;
-    lines.push(`| **Machine** | ${platform} ${machineInfo.osRelease} (${machineInfo.arch}) |`);
+    lines.push(`| **Machine** | ${formatPlatform(machineInfo.platform)} ${machineInfo.osRelease} (${machineInfo.arch}) |`);
     lines.push(`| **CPU** | ${machineInfo.cpuModel} (${machineInfo.cpuCores} cores) |`);
     if (machineInfo.totalMemoryMB) {
       lines.push(`| **Memory** | ${(machineInfo.totalMemoryMB / 1024).toFixed(1)} GB |`);
@@ -393,7 +397,7 @@ export function buildMedianSummary(summaries, resultsDir) {
     videos: {},
     clickCounts: Object.fromEntries(racers.map(n => [n, 0])),
     runs: summaries.length,
-    machineInfo: summaries[0].machineInfo || getMachineInfo(),
+    machineInfo: summaries.find(s => s.machineInfo)?.machineInfo,
   };
 }
 

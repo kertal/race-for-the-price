@@ -11,7 +11,7 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { PROFILE_METRICS, categoryDescriptions } from './profile-analysis.js';
-import { getPlacementOrder } from './summary.js';
+import { getPlacementOrder, formatPlatform } from './summary.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const TEMPLATE = fs.readFileSync(path.join(__dirname, 'player.html'), 'utf-8');
@@ -121,9 +121,7 @@ function buildRaceInfoHtml(summary) {
 function buildMachineInfoHtml(machineInfo) {
   if (!machineInfo) return '';
   const rows = [];
-  const platformNames = { darwin: 'macOS', linux: 'Linux', win32: 'Windows' };
-  const platform = platformNames[machineInfo.platform] || machineInfo.platform;
-  rows.push(`<tr><td>OS</td><td>${escHtml(platform)} ${escHtml(machineInfo.osRelease)} (${escHtml(machineInfo.arch)})</td></tr>`);
+  rows.push(`<tr><td>OS</td><td>${escHtml(formatPlatform(machineInfo.platform))} ${escHtml(machineInfo.osRelease)} (${escHtml(machineInfo.arch)})</td></tr>`);
   rows.push(`<tr><td>CPU</td><td>${escHtml(machineInfo.cpuModel)} (${machineInfo.cpuCores} cores)</td></tr>`);
   if (machineInfo.totalMemoryMB) {
     const memGB = (machineInfo.totalMemoryMB / 1024).toFixed(1);
