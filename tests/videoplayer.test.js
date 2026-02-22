@@ -281,6 +281,44 @@ describe('buildPlayerHtml race info', () => {
   });
 });
 
+// --- Machine Info section ---
+
+describe('buildPlayerHtml machine info', () => {
+  const machineInfo = {
+    platform: 'linux',
+    arch: 'x64',
+    osRelease: '5.15.0',
+    cpuModel: 'Intel Core i7-12700K',
+    cpuCores: 12,
+    totalMemoryMB: 32768,
+    nodeVersion: 'v20.11.0',
+  };
+
+  it('shows machine info table when provided', () => {
+    const html = buildPlayerHtml(abSummary({ machineInfo }), abVideoFiles);
+    expect(html).toContain('machine-info');
+    expect(html).toContain('Linux');
+    expect(html).toContain('5.15.0');
+    expect(html).toContain('x64');
+    expect(html).toContain('Intel Core i7-12700K');
+    expect(html).toContain('12 cores');
+    expect(html).toContain('32.0 GB');
+    expect(html).toContain('v20.11.0');
+  });
+
+  it('omits machine info section when not provided', () => {
+    expect(buildPlayerHtml(abSummary(), abVideoFiles)).not.toContain('<div class="machine-info">');
+  });
+
+  it('HTML-escapes values', () => {
+    const html = buildPlayerHtml(abSummary({
+      machineInfo: { ...machineInfo, cpuModel: '<script>alert("xss")</script>' },
+    }), abVideoFiles);
+    expect(html).not.toContain('<script>alert');
+    expect(html).toContain('&lt;script&gt;');
+  });
+});
+
 // --- Errors section ---
 
 describe('buildPlayerHtml errors', () => {

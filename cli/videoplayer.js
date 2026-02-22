@@ -11,7 +11,7 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { PROFILE_METRICS, categoryDescriptions } from './profile-analysis.js';
-import { getPlacementOrder } from './summary.js';
+import { getPlacementOrder, formatPlatform } from './summary.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const TEMPLATE = fs.readFileSync(path.join(__dirname, 'player.html'), 'utf-8');
@@ -116,6 +116,21 @@ function buildRaceInfoHtml(summary) {
   }
   if (rows.length === 0) return '';
   return `<div class="race-info"><table>${rows.join('')}</table></div>`;
+}
+
+function buildMachineInfoHtml(machineInfo) {
+  if (!machineInfo) return '';
+  const rows = [];
+  rows.push(`<tr><td>OS</td><td>${escHtml(formatPlatform(machineInfo.platform))} ${escHtml(machineInfo.osRelease)} (${escHtml(machineInfo.arch)})</td></tr>`);
+  rows.push(`<tr><td>CPU</td><td>${escHtml(machineInfo.cpuModel)} (${machineInfo.cpuCores} cores)</td></tr>`);
+  if (machineInfo.totalMemoryMB) {
+    const memGB = (machineInfo.totalMemoryMB / 1024).toFixed(1);
+    rows.push(`<tr><td>Memory</td><td>${memGB} GB</td></tr>`);
+  }
+  if (machineInfo.nodeVersion) {
+    rows.push(`<tr><td>Node.js</td><td>${escHtml(machineInfo.nodeVersion)}</td></tr>`);
+  }
+  return `<div class="machine-info"><table>${rows.join('')}</table></div>`;
 }
 
 function buildErrorsHtml(errors) {
@@ -978,6 +993,7 @@ export function buildPlayerHtml(summary, videoFiles, altFormat, altFiles, option
     winnerBanner,
     videoSourceNote: medianRunLabel ? `<div class="video-source-note">Videos from ${escHtml(medianRunLabel)} (closest to median)</div>` : '',
     raceInfo: buildRaceInfoHtml(summary),
+    machineInfo: buildMachineInfoHtml(summary.machineInfo),
     errors: buildErrorsHtml(summary.errors),
     modeToggle,
     playerSection,
