@@ -32,8 +32,16 @@ const videoFiles = ['lauda/lauda.race.webm', 'hunt/hunt.race.webm'];
 const abVideoFiles = ['a/a.race.webm', 'b/b.race.webm'];
 const abSummary = (overrides = {}) => makeSummary({ racers: ['a', 'b'], comparisons: [], ...overrides });
 
-// Shared default output — used by many tests that don't need custom summaries
-const defaultHtml = buildPlayerHtml(makeSummary(), videoFiles);
+// Shared helpers — reduce repeated buildPlayerHtml boilerplate
+const withSummary = (overrides) => buildPlayerHtml(makeSummary(overrides), videoFiles);
+const withOptions = (opts, summary) => buildPlayerHtml(summary || makeSummary(), videoFiles, null, null, opts);
+const defaultHtml = withSummary();
+const noVideosHtml = buildPlayerHtml(makeSummary(), []);
+
+function withTmpDir(fn) {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'race-test-'));
+  try { fn(tmpDir); } finally { fs.rmSync(tmpDir, { recursive: true, force: true }); }
+}
 
 describe('buildPlayerHtml', () => {
   it('returns a complete HTML document', () => {
@@ -60,8 +68,7 @@ describe('buildPlayerHtml', () => {
   });
 
   it('shows tie banner when tied', () => {
-    const html = buildPlayerHtml(makeSummary({ overallWinner: 'tie' }), videoFiles);
-    expect(html).toContain("It's a Tie!");
+    expect(withSummary({ overallWinner: 'tie' })).toContain("It's a Tie!");
   });
 
   it('includes playback controls', () => {
@@ -95,7 +102,7 @@ describe('buildPlayerHtml', () => {
   });
 
   it('handles empty comparisons', () => {
-    const html = buildPlayerHtml(makeSummary({ comparisons: [] }), videoFiles);
+    const html = withSummary({ comparisons: [] });
     expect(html).toContain('<!DOCTYPE html>');
     expect(html).toContain('Results');
   });
@@ -154,7 +161,7 @@ describe('buildPlayerHtml', () => {
 
   it('shows mode toggle when full videos provided', () => {
     const fullVideos = ['lauda/lauda.full.webm', 'hunt/hunt.full.webm'];
-    const html = buildPlayerHtml(makeSummary(), videoFiles, null, null, { fullVideoFiles: fullVideos });
+    const html = withOptions({ fullVideoFiles: fullVideos });
     expect(html).toContain('id="modeRace"');
     expect(html).toContain('id="modeFull"');
     expect(html).toContain('class="mode-btn active"');
@@ -164,7 +171,7 @@ describe('buildPlayerHtml', () => {
   });
 
   it('shows merged video button when merged video provided', () => {
-    const html = buildPlayerHtml(makeSummary(), videoFiles, null, null, { mergedVideoFile: 'lauda-vs-hunt.webm' });
+    const html = withOptions({ mergedVideoFile: 'lauda-vs-hunt.webm' });
     expect(html).toContain('id="modeMerged"');
     expect(html).toContain('id="mergedVideo"');
     expect(html).toContain('src="lauda-vs-hunt.webm"');
@@ -173,7 +180,7 @@ describe('buildPlayerHtml', () => {
 
   it('shows all mode buttons when both full and merged provided', () => {
     const fullVideos = ['lauda/lauda.full.webm', 'hunt/hunt.full.webm'];
-    const html = buildPlayerHtml(makeSummary(), videoFiles, null, null, { fullVideoFiles: fullVideos, mergedVideoFile: 'merged.webm' });
+    const html = withOptions({ fullVideoFiles: fullVideos, mergedVideoFile: 'merged.webm' });
     expect(html).toContain('id="modeRace"');
     expect(html).toContain('id="modeFull"');
     expect(html).toContain('id="modeMerged"');
@@ -192,7 +199,7 @@ describe('buildPlayerHtml', () => {
     const metrics1 = { total: { networkTransferSize: 1000, scriptDuration: 100 }, measured: { networkTransferSize: 500 } };
     const metrics2 = { total: { networkTransferSize: 2000, scriptDuration: 200 }, measured: { networkTransferSize: 800 } };
     const profileComparison = buildProfileComparison(['lauda', 'hunt'], [metrics1, metrics2]);
-    const html = buildPlayerHtml(makeSummary({ profileComparison }), videoFiles);
+    const html = withSummary({ profileComparison });
     expect(html).toContain('Performance Profile');
     expect(html).toContain('Lower values are better');
     expect(html).toContain('During Measurement');
@@ -203,7 +210,7 @@ describe('buildPlayerHtml', () => {
     const metrics1 = { total: { networkTransferSize: 2000 }, measured: {} };
     const metrics2 = { total: { networkTransferSize: 1000 }, measured: {} };
     const profileComparison = buildProfileComparison(['lauda', 'hunt'], [metrics1, metrics2]);
-    const html = buildPlayerHtml(makeSummary({ profileComparison }), videoFiles);
+    const html = withSummary({ profileComparison });
     const profileSection = html.slice(html.indexOf('Total Session'));
     expect(profileSection.indexOf('>hunt<')).toBeLessThan(profileSection.indexOf('>lauda<'));
     expect(profileSection).toContain('(+');
@@ -252,9 +259,7 @@ describe('buildPlayerHtml', () => {
   });
 
   it('shows run navigation bar', () => {
-    const html = buildPlayerHtml(makeSummary(), videoFiles, null, null, {
-      runNavigation: { currentRun: 1, totalRuns: 3, pathPrefix: '../' },
-    });
+    const html = withOptions({ runNavigation: { currentRun: 1, totalRuns: 3, pathPrefix: '../' } });
     for (let i = 1; i <= 3; i++) expect(html).toContain(`Run ${i}`);
     expect(html).toContain('Median');
     expect(html).toContain('run-nav-btn active');
@@ -342,21 +347,21 @@ describe('buildPlayerHtml errors', () => {
 
 describe('buildPlayerHtml click counts', () => {
   it('shows click counts when present', () => {
-    const html = buildPlayerHtml(makeSummary({ comparisons: [], clickCounts: { lauda: 5, hunt: 3 } }), videoFiles);
+    const html = withSummary({ comparisons: [], clickCounts: { lauda: 5, hunt: 3 } });
     expect(html).toContain('Clicks');
     expect(html).toContain('>5<');
     expect(html).toContain('>3<');
   });
 
   it('omits clicks when all zero', () => {
-    expect(buildPlayerHtml(makeSummary({ comparisons: [] }), videoFiles)).not.toContain('Clicks');
+    expect(withSummary({ comparisons: [] })).not.toContain('Clicks');
   });
 });
 
 // --- Clip times (default mode, without --ffmpeg) ---
 
 describe('buildPlayerHtml clipTimes', () => {
-  const withClips = (clips, opts = {}) => buildPlayerHtml(opts.summary || makeSummary(), videoFiles, null, null, { clipTimes: clips, ...opts });
+  const withClips = (clips, opts = {}) => withOptions({ clipTimes: clips, ...opts }, opts.summary);
 
   it('shows mode toggle with Full button when clipTimes provided', () => {
     const html = withClips([{ start: 1.5, end: 3 }, { start: 1.5, end: 3 }]);
@@ -447,7 +452,7 @@ describe('buildPlayerHtml files section', () => {
 
 describe('buildPlayerHtml debug mode', () => {
   const clipTimes = [{ start: 1.52, end: 3 }, { start: 1.2, end: 2.8 }];
-  const debugHtml = buildPlayerHtml(makeSummary(), videoFiles, null, null, { clipTimes });
+  const debugHtml = withOptions({ clipTimes });
 
   it('shows Debug button when clipTimes provided', () => {
     expect(debugHtml).toContain('id="modeDebug"');
@@ -456,7 +461,7 @@ describe('buildPlayerHtml debug mode', () => {
 
   it('hides Debug button when no clipTimes or all null', () => {
     expect(defaultHtml).not.toContain('id="modeDebug"');
-    const nullClips = buildPlayerHtml(makeSummary(), videoFiles, null, null, { clipTimes: [null, null] });
+    const nullClips = withOptions({ clipTimes: [null, null] });
     expect(nullClips).not.toContain('id="modeDebug"');
   });
 
@@ -499,7 +504,7 @@ describe('buildPlayerHtml debug mode', () => {
   });
 
   it('debug rows ordered by placement (winner first)', () => {
-    const html = buildPlayerHtml(huntWinsSummary(), videoFiles, null, null, { clipTimes });
+    const html = withOptions({ clipTimes }, huntWinsSummary());
     const panelSection = html.slice(html.indexOf('id="debugPanel"'));
     expect(panelSection.indexOf('>hunt<')).toBeLessThan(panelSection.indexOf('>lauda<'));
   });
@@ -515,7 +520,7 @@ describe('buildPlayerHtml export', () => {
   });
 
   it('does not render Export button when no videos', () => {
-    expect(buildPlayerHtml(makeSummary(), [])).not.toContain('id="exportBtn"');
+    expect(noVideosHtml).not.toContain('id="exportBtn"');
   });
 });
 
@@ -564,7 +569,7 @@ describe('buildPlayerHtml ffmpeg.wasm conversion', () => {
   });
 
   it('does not render Convert dropdown when no videos', () => {
-    expect(buildPlayerHtml(makeSummary(), [])).not.toContain('id="convertSelect"');
+    expect(noVideosHtml).not.toContain('id="convertSelect"');
   });
 
   it('includes conversion progress UI CSS', () => {
@@ -591,9 +596,7 @@ describe('buildPlayerHtml ffmpeg.wasm conversion', () => {
   });
 
   it('passes clip range for trimming during conversion', () => {
-    const html = buildPlayerHtml(makeSummary(), videoFiles, null, null, {
-      clipTimes: [{ start: 1, end: 3 }, { start: 1, end: 3 }],
-    });
+    const html = withOptions({ clipTimes: [{ start: 1, end: 3 }, { start: 1, end: 3 }] });
     expect(html).toContain('clipRange');
     expect(html).toContain("'-ss'");
     expect(html).toContain("'-t'");
@@ -608,34 +611,27 @@ describe('buildPlayerHtml ffmpeg.wasm conversion', () => {
 
 describe('copyFFmpegFiles', () => {
   it('copies ffmpeg.wasm files to ffmpeg/ subdirectory', () => {
-    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'race-test-'));
-    try {
-      const result = copyFFmpegFiles(tmpDir);
-      expect(result).toBe(true);
-
+    withTmpDir(tmpDir => {
+      expect(copyFFmpegFiles(tmpDir)).toBe(true);
       const ffmpegDir = path.join(tmpDir, 'ffmpeg');
       expect(fs.existsSync(ffmpegDir)).toBe(true);
       for (const file of ['index.js', 'classes.js', 'worker.js', 'ffmpeg-core.js', 'ffmpeg-core.wasm']) {
         expect(fs.existsSync(path.join(ffmpegDir, file))).toBe(true);
       }
-    } finally {
-      fs.rmSync(tmpDir, { recursive: true, force: true });
-    }
+    });
   });
 
   it('returns false and logs warning on copy failure', () => {
-    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'race-test-'));
-    const blocker = path.join(tmpDir, 'blocker');
-    fs.writeFileSync(blocker, '');          // regular file blocks mkdir inside it
     const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
     try {
-      const result = copyFFmpegFiles(blocker);
-      expect(result).toBe(false);
-      expect(spy).toHaveBeenCalledOnce();
-      expect(spy.mock.calls[0][0]).toContain('Could not copy ffmpeg.wasm files');
+      withTmpDir(tmpDir => {
+        fs.writeFileSync(path.join(tmpDir, 'blocker'), ''); // regular file blocks mkdir inside it
+        expect(copyFFmpegFiles(path.join(tmpDir, 'blocker'))).toBe(false);
+        expect(spy).toHaveBeenCalledOnce();
+        expect(spy.mock.calls[0][0]).toContain('Could not copy ffmpeg.wasm files');
+      });
     } finally {
       spy.mockRestore();
-      fs.rmSync(tmpDir, { recursive: true, force: true });
     }
   });
 });
