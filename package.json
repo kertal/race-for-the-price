@@ -1,11 +1,20 @@
 {
   "name": "race-for-the-prize",
-  "version": "1.0.0",
+  "version": "0.1.0",
   "description": "🏆 Race two browsers head-to-head and crown a champion",
   "type": "module",
   "bin": {
     "race-for-the-prize": "./race.js"
   },
+  "files": [
+    "race.js",
+    "runner.cjs",
+    "sync-barrier.cjs",
+    "cli/",
+    "races/",
+    "ReadMe.md",
+    "INSTALLATION.md"
+  ],
   "scripts": {
     "test": "vitest run",
     "test:integration": "vitest run --config vitest.integration.config.js",
@@ -19,7 +28,15 @@
     "race",
     "comparison"
   ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/kertal/race-for-the-price.git"
+  },
+  "author": "kertal",
   "license": "MIT",
+  "engines": {
+    "node": ">=18"
+  },
   "dependencies": {
     "playwright": "^1.58.1"
   },
