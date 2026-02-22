@@ -18,6 +18,7 @@ try {
 const fs = require('fs');
 const path = require('path');
 const { execFileSync } = require('child_process');
+const { waitForStability } = require('./visual-stability.cjs');
 
 // Track active browsers/contexts for cleanup on SIGTERM/SIGINT
 let activeBrowsers = [];
@@ -492,6 +493,7 @@ function sanitizeScript(script) {
  *   await page.raceRecordingStart()   — manually start a video segment (async: syncs)
  *   page.raceRecordingEnd()           — manually end a video segment (sync)
  *   page.raceMessage(text)            — send a message to the CLI terminal (sync)
+ *   await page.raceWaitForVisualStability(opts?) — wait for rendering to settle (async)
  *
  * raceStart/raceEnd are async/sync respectively because starting requires
  * synchronizing both browsers at the starting line (via SyncBarrier), while
@@ -681,6 +683,37 @@ async function runMarkerMode(page, context, config, barriers, isParallel, shared
     return duration;
   };
 
+  // CDP session for visual stability checks — created lazily, cleaned up after script
+  let cdpSession = null;
+
+  page.raceWaitForVisualStability = async (opts = {}) => {
+    const callStart = Date.now();
+    try {
+      if (!cdpSession) {
+        cdpSession = await page.context().newCDPSession(page);
+        await cdpSession.send('Performance.enable');
+      }
+      const getCounters = async () => {
+        const { metrics } = await cdpSession.send('Performance.getMetrics');
+        const byName = {};
+        for (const m of metrics) byName[m.name] = m.value;
+        return {
+          taskDuration: byName.TaskDuration || 0,
+          layoutCount: byName.LayoutCount || 0,
+          recalcStyleCount: byName.RecalcStyleCount || 0,
+        };
+      };
+      const result = await waitForStability(getCounters, opts);
+      if (!result.stable) {
+        console.error(`[${id}] raceWaitForVisualStability timed out after ${result.elapsed}ms`);
+      }
+      return result;
+    } catch (err) {
+      console.error(`[${id}] raceWaitForVisualStability error: ${err.message}`);
+      return { stable: false, elapsed: Date.now() - callStart };
+    }
+  };
+
   if (isParallel && barriers) {
     const result = await barriers.ready.wait(`${id} ready`);
     if (result?.aborted) {
@@ -700,6 +733,12 @@ async function runMarkerMode(page, context, config, barriers, isParallel, shared
   } catch (error) {
     console.error(`[${id}] Script failed: ${error.message}`);
     throw new Error(`Script execution failed: ${error.message}`);
+  }
+
+  // Clean up CDP session used by raceWaitForVisualStability
+  if (cdpSession) {
+    try { await cdpSession.detach(); } catch {}
+    cdpSession = null;
   }
 
   if (currentSegmentStart !== null) await stopRecording();

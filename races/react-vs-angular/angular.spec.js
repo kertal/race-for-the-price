@@ -10,6 +10,7 @@ await page.goto('https://angular.dev/', { waitUntil: 'load' });
 
 // Wait for the main content to be visible and interactive
 await page.waitForSelector('a[href="/tutorials"]', { state: 'visible' });
+await page.raceWaitForVisualStability();
 
 page.raceEnd('Load Framework');
 page.raceMessage('Modules loaded!');

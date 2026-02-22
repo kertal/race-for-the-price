@@ -380,9 +380,12 @@ function buildPlayerScript(config) {
   }
 
   function updateTimeDisplay() {
-    const raw = primary.currentTime || 0;
-    const t = raw - clipOffset();
     const d = clipDuration();
+    // Derive elapsed time from scrubber position — this stays correct whether
+    // the update comes from playback (scrubber set by timeupdate) or from
+    // seeking (scrubber set directly), even when the primary video is clamped
+    // at its own clip end.
+    const t = d > 0 ? (scrubber.value / 1000) * d : 0;
     timeDisplay.textContent = fmt(Math.max(0, t)) + ' / ' + fmt(d);
     frameDisplay.textContent = getTime(Math.max(0, t));
   }
@@ -393,9 +396,12 @@ function buildPlayerScript(config) {
     videos.forEach((v, i) => {
       if (!v) return;
       let target = t;
-      // In clip mode, clamp each video to its own clip range
+      // In clip mode, map elapsed time to each video's own clip range so all
+      // racers stay aligned (same elapsed time from their individual race start).
       if (activeClip && ct && isValidClipEntry(ct[i])) {
-        target = Math.max(ct[i].start, Math.min(ct[i].end, t));
+        var elapsed = t - activeClip.start;
+        target = ct[i].start + elapsed;
+        target = Math.max(ct[i].start, Math.min(ct[i].end, target));
       }
       v.currentTime = Math.min(target, v.duration || target);
     });
@@ -417,17 +423,27 @@ function buildPlayerScript(config) {
         playBtn.textContent = '\\u25B6';
       });
       primary.addEventListener('timeupdate', function() {
+        // Derive elapsed from primary clip's own start (not minStart) so the
+        // scrubber stays correct when the primary's clip starts after minStart.
+        var adj = getAdjustedClipTimes();
+        var ct = adj || clipTimes;
+        var primaryClip = activeClip && ct && isValidClipEntry(ct[0]) ? ct[0] : null;
+        var elapsed = primaryClip
+          ? (primary.currentTime - primaryClip.start)
+          : (primary.currentTime - clipOffset());
         // Enforce clip end boundary
-        if (activeClip && primary.currentTime >= activeClip.end) {
+        if (activeClip && elapsed >= clipDuration()) {
           videos.forEach(v => v && v.pause());
           seekAll(activeClip.end);
           playing = false;
           playBtn.textContent = '\\u25B6';
+          scrubber.value = 1000;
+          updateTimeDisplay();
+          return;
         }
         if (duration > 0) {
-          const t = primary.currentTime - clipOffset();
           const d = clipDuration();
-          scrubber.value = d > 0 ? (Math.max(0, t) / d) * 1000 : 0;
+          scrubber.value = d > 0 ? (Math.max(0, elapsed) / d) * 1000 : 0;
           updateTimeDisplay();
         }
       });
@@ -452,17 +468,19 @@ function buildPlayerScript(config) {
   }
 
   function resolveClip() {
-    // Compute union range across all racers so the scrubber covers all recordings
+    // Compute elapsed-time range: start = earliest clip start, duration = longest race segment.
+    // This ensures the scrubber represents elapsed race time (0 → maxDuration) and all
+    // racers stay aligned when seeking — each video is offset from its own clip start.
     if (!clipTimes) return null;
-    let minStart = Infinity, maxEnd = -Infinity, found = false;
+    let minStart = Infinity, maxDuration = 0, found = false;
     for (let i = 0; i < clipTimes.length; i++) {
       if (isValidClipEntry(clipTimes[i])) {
         minStart = Math.min(minStart, clipTimes[i].start);
-        maxEnd = Math.max(maxEnd, clipTimes[i].end);
+        maxDuration = Math.max(maxDuration, clipTimes[i].end - clipTimes[i].start);
         found = true;
       }
     }
-    return found ? { start: minStart, end: maxEnd } : null;
+    return found ? { start: minStart, end: minStart + maxDuration } : null;
   }
 
   function switchToRace() {
@@ -561,15 +579,15 @@ function buildPlayerScript(config) {
   function resolveAdjustedClip() {
     var adj = getAdjustedClipTimes();
     if (!adj) return resolveClip();
-    var minStart = Infinity, maxEnd = -Infinity, found = false;
+    var minStart = Infinity, maxDuration = 0, found = false;
     for (var i = 0; i < adj.length; i++) {
       if (isValidClipEntry(adj[i])) {
         minStart = Math.min(minStart, adj[i].start);
-        maxEnd = Math.max(maxEnd, adj[i].end);
+        maxDuration = Math.max(maxDuration, adj[i].end - adj[i].start);
         found = true;
       }
     }
-    return found ? { start: minStart, end: maxEnd } : null;
+    return found ? { start: minStart, end: minStart + maxDuration } : null;
   }
 
   function updateDebugDisplay() {
@@ -674,6 +692,7 @@ function buildPlayerScript(config) {
     const d = clipDuration();
     const t = (scrubber.value / 1000) * d + clipOffset();
     seekAll(t);
+    updateTimeDisplay();
   });
 
   speedSelect.addEventListener('change', function() {
@@ -685,10 +704,14 @@ function buildPlayerScript(config) {
     if (playing) { videos.forEach(v => v && v.pause()); playing = false; playBtn.textContent = '\\u25B6'; }
     const minT = clipOffset();
     const maxT = activeClip ? activeClip.end : duration;
-    // Use max currentTime across all videos so stepping works past shorter videos
-    const cur = Math.max.apply(null, videos.filter(function(v) { return v; }).map(function(v) { return v.currentTime || 0; }));
+    // Derive current position from scrubber to maintain elapsed-time alignment
+    var d = clipDuration();
+    var cur = d > 0 ? minT + (scrubber.value / 1000) * d : (primary.currentTime || 0);
     const t = Math.max(minT, Math.min(maxT, cur + delta));
     seekAll(t);
+    var newElapsed = t - minT;
+    scrubber.value = d > 0 ? (newElapsed / d) * 1000 : 0;
+    updateTimeDisplay();
   }
 
   document.getElementById('prevFrame').addEventListener('click', function() { stepFrame(-STEP); });
@@ -808,7 +831,11 @@ function buildPlayerScript(config) {
       if (!v) return Promise.resolve();
       return new Promise(function(resolve) {
         var target = startTime;
-        if (activeClip && ct && ct[i]) target = Math.max(ct[i].start, Math.min(ct[i].end, startTime));
+        if (activeClip && ct && ct[i]) {
+          var elapsed = startTime - activeClip.start;
+          target = ct[i].start + elapsed;
+          target = Math.max(ct[i].start, Math.min(ct[i].end, target));
+        }
         v.currentTime = Math.min(target, v.duration || target);
         v.onseeked = function() { v.onseeked = null; resolve(); };
       });

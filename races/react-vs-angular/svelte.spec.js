@@ -10,6 +10,7 @@ await page.goto('https://svelte.dev/', { waitUntil: 'load' });
 
 // Wait for the main hero content to be visible
 await page.waitForSelector('h1', { state: 'visible' });
+await page.raceWaitForVisualStability();
 
 page.raceEnd('Load Framework');
 page.raceMessage('Compiled and ready!');

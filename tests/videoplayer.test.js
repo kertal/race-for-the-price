@@ -514,3 +514,60 @@ describe('buildPlayerHtml export', () => {
     expect(buildPlayerHtml(makeSummary(), [])).not.toContain('id="exportBtn"');
   });
 });
+
+// --- Clip alignment ---
+
+describe('buildPlayerHtml clip alignment', () => {
+  const withClips = (clips, opts = {}) => buildPlayerHtml(opts.summary || makeSummary(), videoFiles, null, null, { clipTimes: clips, ...opts });
+
+  it('resolveClip uses maxDuration, not maxEnd', () => {
+    const html = withClips([{ start: 1, end: 3 }, { start: 2, end: 3.5 }]);
+    // Should contain duration-based logic, not union-based
+    expect(html).toContain('maxDuration');
+    expect(html).toContain('minStart + maxDuration');
+  });
+
+  it('seekAll uses elapsed-time mapping for per-video positioning', () => {
+    const html = withClips([{ start: 1, end: 3 }, { start: 2, end: 3.5 }]);
+    // Should compute elapsed from activeClip.start and offset each video individually
+    expect(html).toContain('var elapsed = t - activeClip.start');
+    expect(html).toContain('target = ct[i].start + elapsed');
+  });
+
+  it('resolveAdjustedClip also uses maxDuration', () => {
+    const html = withClips([{ start: 1, end: 3 }, { start: 2, end: 3.5 }]);
+    const script = html.slice(html.indexOf('resolveAdjustedClip'));
+    expect(script).toContain('maxDuration');
+  });
+
+  it('updateTimeDisplay derives time from scrubber, not primary.currentTime', () => {
+    const html = withClips([{ start: 1, end: 3 }, { start: 2, end: 3.5 }]);
+    const fnMatch = html.match(/function updateTimeDisplay\(\)\s*\{([^}]+)\}/);
+    expect(fnMatch).toBeTruthy();
+    expect(fnMatch[1]).toContain('scrubber.value');
+    expect(fnMatch[1]).not.toContain('primary.currentTime');
+  });
+
+  it('timeupdate clip-end handler sets scrubber to 1000 and returns', () => {
+    const html = withClips([{ start: 1, end: 3 }, { start: 2, end: 3.5 }]);
+    // After seekAll(activeClip.end), scrubber should be set to 1000
+    expect(html).toContain('scrubber.value = 1000');
+  });
+
+  it('stepFrame derives position from scrubber for elapsed-time consistency', () => {
+    const html = withClips([{ start: 1, end: 3 }, { start: 2, end: 3.5 }]);
+    const stepStart = html.indexOf('function stepFrame');
+    // Extract just the stepFrame function body (up to next top-level function)
+    const stepFn = html.slice(stepStart, html.indexOf('\n  function', stepStart + 1));
+    // Should NOT use Math.max.apply on video currentTimes (old approach)
+    expect(stepFn).not.toContain('Math.max.apply');
+    expect(stepFn).toContain('scrubber.value');
+  });
+
+  it('export seek code uses elapsed-based alignment', () => {
+    const html = withClips([{ start: 1, end: 3 }, { start: 2, end: 3.5 }]);
+    const exportSection = html.slice(html.indexOf('seekPromises'));
+    expect(exportSection).toContain('var elapsed = startTime - activeClip.start');
+    expect(exportSection).toContain('target = ct[i].start + elapsed');
+  });
+});
