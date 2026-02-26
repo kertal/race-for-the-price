@@ -299,15 +299,51 @@ ${placementOrder.map((origIdx, displayIdx) => {
 }
 
 // ---------------------------------------------------------------------------
+// Frame Timeline Builder — filmstrip view with one row per racer
+// ---------------------------------------------------------------------------
+
+function buildFrameTimelineHtml(racers, placementOrder) {
+  const rows = placementOrder.map((origIdx, displayIdx) => {
+    const color = RACER_CSS_COLORS[origIdx % RACER_CSS_COLORS.length];
+    return `  <div class="frame-timeline-row" data-ft-idx="${displayIdx}">
+    <div class="frame-timeline-label" style="color: ${color}">${escHtml(racers[origIdx])}</div>
+    <div class="frame-timeline-strip" id="ftStrip${displayIdx}"></div>
+  </div>`;
+  }).join('\n');
+
+  return `<div class="frame-timeline-controls" id="ftControls" style="display:none">
+  <label>Frame interval:</label>
+  <select id="ftInterval">
+    <option value="0.1">0.1s</option>
+    <option value="0.2" selected>0.2s</option>
+    <option value="0.5">0.5s</option>
+    <option value="1">1s</option>
+  </select>
+  <label>Thumb height:</label>
+  <select id="ftThumbHeight">
+    <option value="60">Small</option>
+    <option value="90" selected>Medium</option>
+    <option value="120">Large</option>
+  </select>
+  <button class="debug-action-btn" id="ftRegenerate">Regenerate</button>
+</div>
+<div class="frame-timeline" id="frameTimeline">
+  <div class="frame-timeline-loading" id="ftLoading">Extracting frames...</div>
+${rows}
+</div>`;
+}
+
+// ---------------------------------------------------------------------------
 // Player Section Builder — returns player container + controls (or '' if no videos)
 // ---------------------------------------------------------------------------
 
-function buildPlayerSectionHtml(videoElements, mergedVideoElement, debugPanelHtml) {
+function buildPlayerSectionHtml(videoElements, mergedVideoElement, debugPanelHtml, frameTimelineHtml) {
   return `<div class="player-container" id="playerContainer">
 ${videoElements}
 </div>
 ${mergedVideoElement}
 ${debugPanelHtml || ''}
+${frameTimelineHtml || ''}
 
 <div class="controls">
   <div class="controls-row">
@@ -430,6 +466,7 @@ function buildPlayerScript(config) {
           scrubber.value = d > 0 ? (Math.max(0, t) / d) * 1000 : 0;
           updateTimeDisplay();
         }
+        if (typeof ftSyncHighlight === 'function') ftSyncHighlight();
       });
     }
   }
@@ -440,10 +477,13 @@ function buildPlayerScript(config) {
   const modeFull = document.getElementById('modeFull');
   const modeMerged = document.getElementById('modeMerged');
   const modeDebug = document.getElementById('modeDebug');
+  const modeFrames = document.getElementById('modeFrames');
   const debugPanel = document.getElementById('debugPanel');
+  const frameTimeline = document.getElementById('frameTimeline');
+  const ftControls = document.getElementById('ftControls');
 
   function setActiveMode(btn) {
-    [modeRace, modeFull, modeMerged, modeDebug].forEach(b => b && b.classList.remove('active'));
+    [modeRace, modeFull, modeMerged, modeDebug, modeFrames].forEach(b => b && b.classList.remove('active'));
     btn && btn.classList.add('active');
   }
 
@@ -473,6 +513,8 @@ function buildPlayerScript(config) {
     playerContainer.style.display = 'flex';
     if (mergedContainer) mergedContainer.style.display = 'none';
     if (debugPanel) debugPanel.style.display = 'none';
+    if (frameTimeline) frameTimeline.style.display = 'none';
+    if (ftControls) ftControls.style.display = 'none';
     setActiveMode(modeRace);
     activeClip = resolveAdjustedClip();
     duration = 0;
@@ -493,6 +535,8 @@ function buildPlayerScript(config) {
     playerContainer.style.display = 'flex';
     if (mergedContainer) mergedContainer.style.display = 'none';
     if (debugPanel) debugPanel.style.display = 'none';
+    if (frameTimeline) frameTimeline.style.display = 'none';
+    if (ftControls) ftControls.style.display = 'none';
     setActiveMode(modeFull);
     activeClip = null;
     duration = 0;
@@ -509,6 +553,8 @@ function buildPlayerScript(config) {
     playerContainer.style.display = 'none';
     mergedContainer.style.display = 'block';
     if (debugPanel) debugPanel.style.display = 'none';
+    if (frameTimeline) frameTimeline.style.display = 'none';
+    if (ftControls) ftControls.style.display = 'none';
     setActiveMode(modeMerged);
     activeClip = null;
     duration = mergedVideo.duration || 0;
@@ -608,6 +654,8 @@ function buildPlayerScript(config) {
     playerContainer.style.display = 'flex';
     if (mergedContainer) mergedContainer.style.display = 'none';
     if (debugPanel) debugPanel.style.display = 'block';
+    if (frameTimeline) frameTimeline.style.display = 'none';
+    if (ftControls) ftControls.style.display = 'none';
     setActiveMode(modeDebug);
     activeClip = resolveAdjustedClip();
     duration = 0;
@@ -644,10 +692,201 @@ function buildPlayerScript(config) {
     });
   }
 
+  // --- Frame Timeline: extract frames as thumbnails ---
+  var ftGenerated = false;
+  var ftFrameData = []; // array of arrays: ftFrameData[displayIdx] = [{time, canvas}, ...]
+  var ftCurrentInterval = 0.2;
+  var ftCurrentThumbH = 90;
+
+  function ftGetInterval() {
+    var sel = document.getElementById('ftInterval');
+    return sel ? parseFloat(sel.value) : 0.2;
+  }
+
+  function ftGetThumbHeight() {
+    var sel = document.getElementById('ftThumbHeight');
+    return sel ? parseInt(sel.value, 10) : 90;
+  }
+
+  function ftExtractFrames() {
+    var interval = ftGetInterval();
+    var thumbH = ftGetThumbHeight();
+    ftCurrentInterval = interval;
+    ftCurrentThumbH = thumbH;
+    ftFrameData = [];
+    var loadingEl = document.getElementById('ftLoading');
+    if (loadingEl) loadingEl.style.display = 'block';
+
+    // Clear existing strips
+    for (var i = 0; i < raceVideos.length; i++) {
+      var strip = document.getElementById('ftStrip' + i);
+      if (strip) strip.innerHTML = '';
+    }
+
+    // Use offscreen video elements to avoid interfering with main playback
+    var pending = raceVideos.length;
+    raceVideos.forEach(function(origV, idx) {
+      if (!origV) { pending--; return; }
+      ftFrameData[idx] = [];
+      var v = document.createElement('video');
+      v.muted = true;
+      v.preload = 'auto';
+      v.src = raceVideoPaths[idx];
+
+      v.addEventListener('loadedmetadata', function() {
+        var dur = v.duration;
+        if (!dur || dur === Infinity) { pending--; if (pending <= 0) ftFinalize(); return; }
+
+        // Determine aspect ratio
+        var aspect = v.videoWidth / v.videoHeight;
+        var thumbW = Math.round(thumbH * aspect);
+        var times = [];
+        for (var t = 0; t < dur; t += interval) {
+          times.push(Math.min(t, dur));
+        }
+        // Always include last frame
+        if (times.length === 0 || times[times.length - 1] < dur - interval * 0.5) {
+          times.push(dur - 0.001);
+        }
+
+        var frameIdx = 0;
+        var strip = document.getElementById('ftStrip' + idx);
+
+        function extractNext() {
+          if (frameIdx >= times.length) {
+            pending--;
+            if (pending <= 0) ftFinalize();
+            return;
+          }
+          v.currentTime = times[frameIdx];
+        }
+
+        v.addEventListener('seeked', function onSeeked() {
+          var cvs = document.createElement('canvas');
+          cvs.width = thumbW;
+          cvs.height = thumbH;
+          var ctx = cvs.getContext('2d');
+          try { ctx.drawImage(v, 0, 0, thumbW, thumbH); } catch(e) {}
+
+          var time = times[frameIdx];
+          ftFrameData[idx].push({ time: time, canvas: cvs });
+
+          // Build thumb element
+          var thumb = document.createElement('div');
+          thumb.className = 'frame-timeline-thumb';
+          thumb.setAttribute('data-ft-video', idx);
+          thumb.setAttribute('data-ft-time', time.toFixed(3));
+          thumb.appendChild(cvs);
+          var label = document.createElement('div');
+          label.className = 'frame-timeline-time';
+          label.textContent = time.toFixed(1) + 's';
+          thumb.appendChild(label);
+          if (strip) strip.appendChild(thumb);
+
+          frameIdx++;
+          extractNext();
+        });
+
+        extractNext();
+      });
+
+      v.addEventListener('error', function() {
+        pending--;
+        if (pending <= 0) ftFinalize();
+      });
+    });
+  }
+
+  function ftFinalize() {
+    var loadingEl = document.getElementById('ftLoading');
+    if (loadingEl) loadingEl.style.display = 'none';
+    ftGenerated = true;
+    ftSyncHighlight();
+  }
+
+  function ftSyncHighlight() {
+    if (!frameTimeline || frameTimeline.style.display === 'none') return;
+    var curTime = primary ? (primary.currentTime || 0) : 0;
+    for (var i = 0; i < raceVideos.length; i++) {
+      var strip = document.getElementById('ftStrip' + i);
+      if (!strip) continue;
+      var thumbs = strip.querySelectorAll('.frame-timeline-thumb');
+      var bestIdx = 0;
+      var bestDist = Infinity;
+      for (var j = 0; j < thumbs.length; j++) {
+        var t = parseFloat(thumbs[j].getAttribute('data-ft-time'));
+        var dist = Math.abs(t - curTime);
+        if (dist < bestDist) { bestDist = dist; bestIdx = j; }
+      }
+      for (var j = 0; j < thumbs.length; j++) {
+        thumbs[j].classList.toggle('active', j === bestIdx);
+      }
+    }
+  }
+
+  // Click on a frame thumb seeks all videos to that time
+  if (frameTimeline) {
+    frameTimeline.addEventListener('click', function(e) {
+      var thumb = e.target.closest('.frame-timeline-thumb');
+      if (!thumb) return;
+      var time = parseFloat(thumb.getAttribute('data-ft-time'));
+      if (isNaN(time)) return;
+      if (playing) { videos.forEach(function(v) { v && v.pause(); }); playing = false; playBtn.textContent = '\\u25B6'; }
+      seekAll(time);
+      ftSyncHighlight();
+      updateTimeDisplay();
+      // Scroll all strips to align
+      var videoIdx = parseInt(thumb.getAttribute('data-ft-video'), 10);
+      var thumbRect = thumb.getBoundingClientRect();
+      for (var i = 0; i < raceVideos.length; i++) {
+        var strip = document.getElementById('ftStrip' + i);
+        if (!strip) continue;
+        // Find matching time thumb in other strips
+        var matchThumb = strip.querySelector('.frame-timeline-thumb[data-ft-time="' + time.toFixed(3) + '"]');
+        if (matchThumb && i !== videoIdx) {
+          matchThumb.scrollIntoView({ inline: 'center', block: 'nearest', behavior: 'smooth' });
+        }
+      }
+      thumb.scrollIntoView({ inline: 'center', block: 'nearest', behavior: 'smooth' });
+    });
+  }
+
+  // Regenerate button
+  var ftRegenBtn = document.getElementById('ftRegenerate');
+  if (ftRegenBtn) {
+    ftRegenBtn.addEventListener('click', function() {
+      ftGenerated = false;
+      ftExtractFrames();
+    });
+  }
+
+  function switchToFrames() {
+    if (playing) { videos.forEach(function(v) { v && v.pause(); }); playing = false; playBtn.textContent = '\\u25B6'; }
+    raceVideos.forEach(function(v, i) { v.src = raceVideoPaths[i]; });
+    videos = raceVideos;
+    primary = videos[0];
+    playerContainer.style.display = 'none';
+    if (mergedContainer) mergedContainer.style.display = 'none';
+    if (debugPanel) debugPanel.style.display = 'none';
+    if (frameTimeline) frameTimeline.style.display = 'block';
+    if (ftControls) ftControls.style.display = 'flex';
+    setActiveMode(modeFrames);
+    activeClip = null;
+    duration = 0;
+    onMeta();
+    if (!ftGenerated) {
+      // Wait briefly for video metadata to load before extracting
+      setTimeout(function() { ftExtractFrames(); }, 200);
+    } else {
+      ftSyncHighlight();
+    }
+  }
+
   if (modeRace) modeRace.addEventListener('click', switchToRace);
   if (modeFull) modeFull.addEventListener('click', switchToFull);
   if (modeMerged) modeMerged.addEventListener('click', switchToMerged);
   if (modeDebug) modeDebug.addEventListener('click', switchToDebug);
+  if (modeFrames) modeFrames.addEventListener('click', switchToFrames);
   if (mergedVideo) mergedVideo.addEventListener('loadedmetadata', function() {
     if (videos.includes(mergedVideo)) {
       duration = mergedVideo.duration;
@@ -942,7 +1181,8 @@ export function buildPlayerHtml(summary, videoFiles, altFormat, altFiles, option
 </div>` : '';
 
     const debugPanelHtml = hasClipTimes ? buildDebugPanelHtml(racers, placementOrder, clipTimes) : '';
-    playerSection = buildPlayerSectionHtml(videoElements, mergedVideoElement, debugPanelHtml);
+    const frameTimelineHtml = buildFrameTimelineHtml(racers, placementOrder);
+    playerSection = buildPlayerSectionHtml(videoElements, mergedVideoElement, debugPanelHtml, frameTimelineHtml);
 
     // Player script config — use JSON.stringify for safe path embedding
     const videoIds = placementOrder.map((_, i) => `v${i}`);
@@ -973,16 +1213,18 @@ export function buildPlayerHtml(summary, videoFiles, altFormat, altFiles, option
 
   // Mode toggle — show Full button when separate full videos exist OR when clip times
   // provide virtual trimming (default mode without --ffmpeg, same file but different playback range)
-  const hasToggle = hasFullVideos || hasClipTimes || hasMergedVideo;
+  const hasToggle = hasVideos || hasFullVideos || hasClipTimes || hasMergedVideo;
   const fullBtn = (hasFullVideos || hasClipTimes) ? '<button class="mode-btn" id="modeFull" title="Full recordings">Full</button>' : '';
   const mergedBtn = hasMergedVideo ? '<button class="mode-btn" id="modeMerged" title="Side-by-side merged video">Merged</button>' : '';
   const debugBtn = hasClipTimes ? '<button class="mode-btn" id="modeDebug" title="Debug clip start calibration">Debug</button>' : '';
+  const framesBtn = hasVideos ? '<button class="mode-btn" id="modeFrames" title="Frame-by-frame timeline">Frames</button>' : '';
   const modeToggle = hasToggle ? `
   <div class="mode-toggle">
     <button class="mode-btn active" id="modeRace" title="Race segments only">Race</button>
     ${fullBtn}
     ${mergedBtn}
     ${debugBtn}
+    ${framesBtn}
   </div>` : '';
 
   // Render template with all sections

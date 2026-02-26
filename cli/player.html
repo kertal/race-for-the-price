@@ -552,6 +552,107 @@
     color: #999;
     font-size: 0.85rem;
   }
+  .frame-timeline {
+    max-width: 100%;
+    width: 100%;
+    padding: 0.8rem 1.5rem;
+    overflow-x: auto;
+    display: none;
+  }
+  .frame-timeline-row {
+    display: flex;
+    align-items: center;
+    margin-bottom: 0.6rem;
+    gap: 0;
+  }
+  .frame-timeline-label {
+    font-family: Georgia, serif;
+    font-size: 0.85rem;
+    font-weight: bold;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    min-width: 100px;
+    flex-shrink: 0;
+    padding-right: 0.6rem;
+  }
+  .frame-timeline-strip {
+    display: flex;
+    gap: 2px;
+    overflow-x: auto;
+    padding: 2px 0;
+    scrollbar-width: thin;
+    scrollbar-color: #555 #2a2a2a;
+  }
+  .frame-timeline-strip::-webkit-scrollbar {
+    height: 6px;
+  }
+  .frame-timeline-strip::-webkit-scrollbar-track {
+    background: #2a2a2a;
+    border-radius: 3px;
+  }
+  .frame-timeline-strip::-webkit-scrollbar-thumb {
+    background: #555;
+    border-radius: 3px;
+  }
+  .frame-timeline-thumb {
+    flex-shrink: 0;
+    cursor: pointer;
+    border: 2px solid transparent;
+    border-radius: 2px;
+    position: relative;
+    transition: border-color 0.15s;
+    background: #000;
+  }
+  .frame-timeline-thumb:hover {
+    border-color: #d4af37;
+  }
+  .frame-timeline-thumb.active {
+    border-color: #d4af37;
+    box-shadow: 0 0 6px rgba(212, 175, 55, 0.5);
+  }
+  .frame-timeline-thumb canvas {
+    display: block;
+    border-radius: 1px;
+  }
+  .frame-timeline-time {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    text-align: center;
+    font-size: 0.55rem;
+    color: #e8e0d0;
+    background: rgba(0,0,0,0.7);
+    padding: 1px 0;
+    pointer-events: none;
+  }
+  .frame-timeline-controls {
+    display: flex;
+    gap: 0.6rem;
+    padding: 0.3rem 1.5rem 0.5rem;
+    align-items: center;
+    justify-content: center;
+  }
+  .frame-timeline-controls label {
+    color: #999;
+    font-size: 0.8rem;
+  }
+  .frame-timeline-controls select {
+    background: #2a2a2a;
+    color: #e8e0d0;
+    border: 1px solid #555;
+    border-radius: 4px;
+    padding: 0.2rem 0.4rem;
+    font-size: 0.8rem;
+    cursor: pointer;
+    font-family: 'Courier New', monospace;
+  }
+  .frame-timeline-loading {
+    color: #777;
+    font-size: 0.8rem;
+    padding: 1rem 0;
+    text-align: center;
+  }
   {{layoutCss}}
 </style>
 </head>
