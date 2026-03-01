@@ -1,0 +1,1416 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Race for the Prize — Multi-Video Comparator</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: #1a1a1a;
+    color: #e8e0d0;
+    font-family: 'Courier New', monospace;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+  }
+  .checkered-bar {
+    width: 100%;
+    height: 20px;
+    background: repeating-conic-gradient(#222 0% 25%, #d4af37 0% 50%) 0 0 / 20px 20px;
+  }
+  h1 {
+    font-family: Georgia, 'Times New Roman', serif;
+    font-size: 2rem;
+    color: #d4af37;
+    text-align: center;
+    padding: 1.5rem 0 0.3rem;
+    text-transform: uppercase;
+    letter-spacing: 0.15em;
+  }
+  .subtitle {
+    text-align: center;
+    font-family: Georgia, serif;
+    font-size: 1.1rem;
+    color: #999;
+    padding-bottom: 1.2rem;
+    font-style: italic;
+  }
+
+  /* --- Hero / About Section --- */
+  .hero {
+    max-width: 800px;
+    width: 100%;
+    padding: 0 1.5rem 1.5rem;
+    text-align: center;
+  }
+  .hero p {
+    font-size: 0.9rem;
+    color: #bbb;
+    line-height: 1.6;
+    margin-bottom: 0.8rem;
+  }
+  .hero a {
+    color: #d4af37;
+    text-decoration: none;
+  }
+  .hero a:hover { text-decoration: underline; }
+  .why-section {
+    max-width: 800px;
+    width: 100%;
+    padding: 0 1.5rem 1.5rem;
+  }
+  .why-section h2 {
+    font-family: Georgia, serif;
+    color: #d4af37;
+    font-size: 1.1rem;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    margin-bottom: 0.5rem;
+  }
+  .why-section p {
+    font-size: 0.85rem;
+    color: #999;
+    line-height: 1.6;
+    margin-bottom: 0.5rem;
+  }
+
+  /* --- Upload Zone --- */
+  .upload-zone {
+    max-width: 900px;
+    width: 100%;
+    padding: 0 1.5rem 1rem;
+  }
+  .drop-area {
+    border: 2px dashed #555;
+    border-radius: 8px;
+    padding: 2rem;
+    text-align: center;
+    cursor: pointer;
+    transition: all 0.3s;
+    background: #222;
+  }
+  .drop-area:hover, .drop-area.dragover {
+    border-color: #d4af37;
+    background: #2a2518;
+  }
+  .drop-area .drop-icon {
+    font-size: 2.5rem;
+    margin-bottom: 0.5rem;
+    display: block;
+  }
+  .drop-area .drop-text {
+    font-size: 0.9rem;
+    color: #999;
+  }
+  .drop-area .drop-text strong {
+    color: #d4af37;
+  }
+  .drop-area .drop-hint {
+    font-size: 0.75rem;
+    color: #666;
+    margin-top: 0.4rem;
+  }
+  .file-input { display: none; }
+
+  /* --- Video Grid --- */
+  .player-container {
+    display: none;
+    flex-wrap: wrap;
+    gap: 1rem;
+    padding: 0 1.5rem;
+    width: 100%;
+    max-width: 1440px;
+    justify-content: center;
+  }
+  .player-container.visible { display: flex; }
+  .racer {
+    flex: 1;
+    min-width: 280px;
+    text-align: center;
+    position: relative;
+  }
+  .racer-label {
+    font-family: Georgia, serif;
+    font-size: 1.1rem;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    padding: 0.5rem 0;
+  }
+  video {
+    width: 100%;
+    border: 2px solid #333;
+    border-radius: 4px;
+    background: #000;
+  }
+  .remove-btn {
+    position: absolute;
+    top: 0.3rem;
+    right: 0.3rem;
+    background: rgba(0,0,0,0.7);
+    color: #e74c3c;
+    border: 1px solid #e74c3c;
+    border-radius: 50%;
+    width: 24px;
+    height: 24px;
+    font-size: 0.8rem;
+    cursor: pointer;
+    line-height: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .remove-btn:hover { background: #e74c3c; color: #fff; }
+
+  /* --- Trim Controls --- */
+  .trim-section {
+    display: none;
+    max-width: 900px;
+    width: 100%;
+    padding: 0.8rem 1.5rem;
+  }
+  .trim-section.visible { display: block; }
+  .trim-section h2 {
+    font-family: Georgia, serif;
+    color: #d4af37;
+    font-size: 1.1rem;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    margin-bottom: 0.6rem;
+  }
+  .trim-row {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    padding: 0.4rem 0;
+    font-size: 0.85rem;
+    flex-wrap: wrap;
+  }
+  .trim-row .racer-name {
+    font-weight: bold;
+    min-width: 80px;
+    flex-shrink: 0;
+  }
+  .trim-group {
+    display: flex;
+    align-items: center;
+    gap: 0.3rem;
+  }
+  .trim-label {
+    color: #888;
+    font-size: 0.8rem;
+    min-width: 35px;
+  }
+  .trim-step-btn {
+    background: #2a2a2a;
+    color: #d4af37;
+    border: 1px solid #555;
+    border-radius: 3px;
+    padding: 0.2rem 0.4rem;
+    font-size: 0.75rem;
+    cursor: pointer;
+    font-family: 'Courier New', monospace;
+    transition: all 0.2s;
+  }
+  .trim-step-btn:hover {
+    background: #3a3a3a;
+    border-color: #d4af37;
+  }
+  .trim-input {
+    width: 70px;
+    background: #2a2a2a;
+    color: #e8e0d0;
+    border: 1px solid #555;
+    border-radius: 3px;
+    padding: 0.2rem 0.4rem;
+    font-size: 0.8rem;
+    font-family: 'Courier New', monospace;
+    text-align: right;
+  }
+  .trim-input:focus {
+    outline: none;
+    border-color: #d4af37;
+  }
+  .trim-duration {
+    color: #777;
+    font-size: 0.8rem;
+    margin-left: 0.5rem;
+  }
+  .trim-reset-btn {
+    background: #2a2a2a;
+    color: #999;
+    border: 1px solid #555;
+    border-radius: 3px;
+    padding: 0.2rem 0.5rem;
+    font-size: 0.7rem;
+    cursor: pointer;
+    font-family: 'Courier New', monospace;
+    margin-left: 0.3rem;
+  }
+  .trim-reset-btn:hover { border-color: #d4af37; color: #d4af37; }
+
+  /* --- Controls --- */
+  .controls {
+    display: none;
+    max-width: 900px;
+    width: 100%;
+    padding: 1rem 1.5rem;
+    align-items: center;
+    gap: 0.8rem;
+    flex-wrap: wrap;
+  }
+  .controls.visible { display: flex; }
+  .controls-row {
+    display: flex;
+    align-items: center;
+    gap: 0.8rem;
+    flex: 1;
+    min-width: 300px;
+  }
+  .play-btn {
+    background: #d4af37;
+    color: #1a1a1a;
+    border: none;
+    border-radius: 4px;
+    width: 44px;
+    height: 34px;
+    font-size: 1.1rem;
+    cursor: pointer;
+    font-weight: bold;
+    flex-shrink: 0;
+  }
+  .play-btn:hover { background: #e8c445; }
+  .frame-btn {
+    background: #2a2a2a;
+    color: #d4af37;
+    border: 1px solid #555;
+    border-radius: 4px;
+    width: 34px;
+    height: 34px;
+    font-size: 0.7rem;
+    cursor: pointer;
+    flex-shrink: 0;
+  }
+  .frame-btn:hover { background: #3a3a3a; border-color: #d4af37; }
+  .scrubber {
+    flex: 1;
+    accent-color: #d4af37;
+    height: 6px;
+    cursor: pointer;
+  }
+  .time-display {
+    font-size: 0.75rem;
+    color: #999;
+    min-width: 140px;
+    text-align: center;
+    flex-shrink: 0;
+  }
+  .frame-display {
+    font-size: 0.75rem;
+    color: #777;
+    min-width: 80px;
+    text-align: center;
+    flex-shrink: 0;
+  }
+  .speed-select {
+    background: #2a2a2a;
+    color: #e8e0d0;
+    border: 1px solid #555;
+    border-radius: 4px;
+    padding: 0.3rem 0.4rem;
+    font-size: 0.8rem;
+    cursor: pointer;
+    flex-shrink: 0;
+  }
+
+  /* --- Stats Section --- */
+  .stats-section {
+    display: none;
+    max-width: 900px;
+    width: 100%;
+    padding: 0.5rem 1.5rem 1rem;
+  }
+  .stats-section.visible { display: block; }
+  .stats-section h2 {
+    font-family: Georgia, serif;
+    color: #d4af37;
+    font-size: 1.1rem;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    margin-bottom: 0.5rem;
+  }
+  .stats-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.82rem;
+  }
+  .stats-table th {
+    text-align: left;
+    color: #888;
+    font-weight: normal;
+    padding: 0.3rem 0.6rem;
+    border-bottom: 1px solid #444;
+    font-size: 0.78rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+  .stats-table td {
+    padding: 0.35rem 0.6rem;
+    border-bottom: 1px solid #2a2a2a;
+  }
+  .stats-summary {
+    margin-top: 0.5rem;
+    font-size: 0.8rem;
+    color: #777;
+  }
+
+  /* --- Export Section --- */
+  .export-section {
+    display: none;
+    max-width: 900px;
+    width: 100%;
+    padding: 0.5rem 1.5rem 1.5rem;
+  }
+  .export-section.visible { display: block; }
+  .export-section h2 {
+    font-family: Georgia, serif;
+    color: #d4af37;
+    font-size: 1.1rem;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    margin-bottom: 0.6rem;
+  }
+  .export-row {
+    display: flex;
+    align-items: center;
+    gap: 0.8rem;
+    flex-wrap: wrap;
+  }
+  .export-format-select {
+    background: #2a2a2a;
+    color: #e8e0d0;
+    border: 1px solid #555;
+    border-radius: 4px;
+    padding: 0.4rem 0.6rem;
+    font-size: 0.85rem;
+    cursor: pointer;
+    font-family: 'Courier New', monospace;
+  }
+  .export-btn {
+    background: #2a2a2a;
+    color: #d4af37;
+    border: 1px solid #d4af37;
+    border-radius: 4px;
+    padding: 0.4rem 1rem;
+    font-size: 0.85rem;
+    cursor: pointer;
+    font-family: 'Courier New', monospace;
+    transition: all 0.2s;
+  }
+  .export-btn:hover { background: #d4af37; color: #1a1a1a; }
+  .export-btn:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+  }
+  .export-btn:disabled:hover {
+    background: #2a2a2a;
+    color: #d4af37;
+  }
+  .export-note {
+    font-size: 0.75rem;
+    color: #666;
+  }
+  .export-overlay {
+    position: fixed;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background: rgba(0,0,0,0.85);
+    z-index: 1000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .export-modal {
+    background: #1a1a1a;
+    border: 2px solid #d4af37;
+    border-radius: 8px;
+    padding: 1.5rem;
+    max-width: 90vw;
+    max-height: 90vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 1rem;
+  }
+  .export-modal h3 {
+    font-family: Georgia, serif;
+    color: #d4af37;
+    font-size: 1rem;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    margin: 0;
+  }
+  .export-modal canvas {
+    border: 1px solid #333;
+    border-radius: 4px;
+    max-width: 100%;
+  }
+  .export-progress-bar {
+    width: 100%;
+    height: 8px;
+    background: #2a2a2a;
+    border-radius: 4px;
+    overflow: hidden;
+  }
+  .export-progress-fill {
+    height: 100%;
+    background: #d4af37;
+    border-radius: 4px;
+    width: 0%;
+    transition: width 0.3s;
+  }
+  .export-log {
+    width: 100%;
+    max-height: 120px;
+    overflow-y: auto;
+    background: #111;
+    border: 1px solid #333;
+    border-radius: 4px;
+    padding: 0.5rem;
+    font-size: 0.7rem;
+    color: #777;
+    white-space: pre-wrap;
+    word-break: break-all;
+  }
+  .export-actions {
+    display: flex;
+    gap: 0.8rem;
+    align-items: center;
+  }
+  .export-actions button, .export-actions a {
+    background: #2a2a2a;
+    color: #e8e0d0;
+    border: 1px solid #555;
+    border-radius: 4px;
+    padding: 0.4rem 1rem;
+    font-size: 0.85rem;
+    cursor: pointer;
+    font-family: 'Courier New', monospace;
+    text-decoration: none;
+    transition: all 0.2s;
+  }
+  .export-actions button:hover, .export-actions a:hover {
+    background: #3a3a3a;
+    border-color: #d4af37;
+  }
+  .export-status {
+    color: #999;
+    font-size: 0.85rem;
+  }
+
+  /* --- Footer --- */
+  .footer {
+    max-width: 800px;
+    width: 100%;
+    padding: 1rem 1.5rem;
+    text-align: center;
+    font-size: 0.75rem;
+    color: #555;
+  }
+  .footer a { color: #d4af37; text-decoration: none; }
+  .footer a:hover { text-decoration: underline; }
+
+  /* Racer colors */
+  .color-0 { color: #e74c3c; }
+  .color-1 { color: #3498db; }
+  .color-2 { color: #27ae60; }
+  .color-3 { color: #f1c40f; }
+
+  /* Layout responsiveness */
+  @media (max-width: 640px) {
+    h1 { font-size: 1.4rem; }
+    .racer { min-width: 100%; }
+  }
+</style>
+</head>
+<body>
+
+<div class="checkered-bar"></div>
+
+<h1>Race for the Prize</h1>
+<div class="subtitle">Multi-Video Comparator &amp; Exporter</div>
+
+<div class="hero">
+  <p>
+    Upload up to 4 browser recordings (WebM or MOV), synchronize playback,
+    fine-tune start and end points, then export a stitched side-by-side
+    comparison video — all in your browser, no server needed.
+  </p>
+</div>
+
+<div class="why-section">
+  <h2>Why?</h2>
+  <p>
+    <strong style="color:#e8e0d0">Race for the Prize</strong> is a CLI tool that pits browsers against each other
+    in head-to-head performance battles using Playwright. It records video of each browser
+    completing a task, measures execution times, and declares a winner.
+  </p>
+  <p>
+    But sometimes you already have recordings — from manual testing, different
+    machines, different network conditions, or different tool runs — and you want to
+    compare them visually. This page lets you do that: drop your videos here,
+    align their start and end points, see the stats, and export a single
+    side-by-side video to share with your team.
+  </p>
+  <p>
+    No uploads leave your machine. Everything runs client-side using
+    <a href="https://github.com/ffmpegwasm/ffmpeg.wasm" target="_blank">FFmpeg WASM</a>
+    for encoding.
+  </p>
+</div>
+
+<!-- Upload Zone -->
+<div class="upload-zone">
+  <div class="drop-area" id="dropArea">
+    <span class="drop-icon">&#127937;</span>
+    <div class="drop-text">
+      <strong>Drop video files here</strong> or click to browse
+    </div>
+    <div class="drop-hint">WebM or MOV &middot; up to 4 files</div>
+  </div>
+  <input type="file" class="file-input" id="fileInput" accept=".webm,.mov,video/webm,video/quicktime,video/mp4" multiple>
+</div>
+
+<!-- Video Grid -->
+<div class="player-container" id="playerContainer"></div>
+
+<!-- Controls -->
+<div class="controls" id="controls">
+  <div class="controls-row">
+    <button class="frame-btn" id="prevFrame" title="-0.1s (&#8592)">&#9664;&#9664;</button>
+    <button class="play-btn" id="playBtn">&#9654;</button>
+    <button class="frame-btn" id="nextFrame" title="+0.1s (&#8594)">&#9654;&#9654;</button>
+    <input type="range" class="scrubber" id="scrubber" min="0" max="1000" value="0">
+  </div>
+  <span class="time-display" id="timeDisplay">0:00.0 / 0:00.0</span>
+  <span class="frame-display" id="frameDisplay">0.0s</span>
+  <select class="speed-select" id="speedSelect">
+    <option value="0.25">0.25x</option>
+    <option value="0.5">0.5x</option>
+    <option value="1" selected>1x</option>
+    <option value="2">2x</option>
+  </select>
+</div>
+
+<!-- Trim Controls -->
+<div class="trim-section" id="trimSection">
+  <h2>Trim</h2>
+  <div id="trimRows"></div>
+</div>
+
+<!-- Statistics -->
+<div class="stats-section" id="statsSection">
+  <h2>Statistics</h2>
+  <table class="stats-table">
+    <thead>
+      <tr>
+        <th>Name</th>
+        <th>Format</th>
+        <th>Resolution</th>
+        <th>Duration</th>
+        <th>Trimmed</th>
+        <th>Size</th>
+      </tr>
+    </thead>
+    <tbody id="statsBody"></tbody>
+  </table>
+  <div class="stats-summary" id="statsSummary"></div>
+</div>
+
+<!-- Export -->
+<div class="export-section" id="exportSection">
+  <h2>Export</h2>
+  <div class="export-row">
+    <select class="export-format-select" id="exportFormat">
+      <option value="webm">WebM</option>
+      <option value="mov">MOV</option>
+      <option value="gif">GIF</option>
+    </select>
+    <button class="export-btn" id="exportBtn">Export Side-by-Side</button>
+    <span class="export-note">Uses FFmpeg WASM — loaded on first export</span>
+  </div>
+</div>
+
+<div class="footer">
+  <a href="https://github.com/nicolo-ribaudo/nicolo-ribaudo.github.io" target="_blank">Race for the Prize on GitHub</a> &mdash;
+  a CLI tool that pits browsers against each other in head-to-head performance battles using Playwright.
+</div>
+
+<div class="checkered-bar"></div>
+
+<script>
+(function() {
+  'use strict';
+
+  var RACER_COLORS = ['#e74c3c', '#3498db', '#27ae60', '#f1c40f'];
+  var MAX_VIDEOS = 4;
+  var STEP = 0.1;
+
+  // --- State ---
+  var slots = []; // { file, objectUrl, videoEl, name, trimStart, trimEnd }
+  var playing = false;
+
+  // --- DOM refs ---
+  var dropArea = document.getElementById('dropArea');
+  var fileInput = document.getElementById('fileInput');
+  var playerContainer = document.getElementById('playerContainer');
+  var controls = document.getElementById('controls');
+  var playBtn = document.getElementById('playBtn');
+  var scrubber = document.getElementById('scrubber');
+  var timeDisplay = document.getElementById('timeDisplay');
+  var frameDisplay = document.getElementById('frameDisplay');
+  var speedSelect = document.getElementById('speedSelect');
+  var trimSection = document.getElementById('trimSection');
+  var trimRows = document.getElementById('trimRows');
+  var statsSection = document.getElementById('statsSection');
+  var statsBody = document.getElementById('statsBody');
+  var statsSummary = document.getElementById('statsSummary');
+  var exportSection = document.getElementById('exportSection');
+  var exportBtn = document.getElementById('exportBtn');
+  var exportFormat = document.getElementById('exportFormat');
+
+  // --- Helpers ---
+  function fmt(s) {
+    var m = Math.floor(s / 60);
+    var sec = (s % 60).toFixed(1);
+    if (parseFloat(sec) < 10) sec = '0' + sec;
+    return m + ':' + sec;
+  }
+
+  function humanSize(bytes) {
+    if (bytes < 1024) return bytes + ' B';
+    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+    return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+  }
+
+  function getExtension(name) {
+    var parts = name.split('.');
+    return parts.length > 1 ? parts[parts.length - 1].toLowerCase() : '?';
+  }
+
+  function clamp(val, min, max) {
+    return Math.max(min, Math.min(max, val));
+  }
+
+  // --- Upload ---
+  dropArea.addEventListener('click', function() { fileInput.click(); });
+  dropArea.addEventListener('dragover', function(e) {
+    e.preventDefault();
+    dropArea.classList.add('dragover');
+  });
+  dropArea.addEventListener('dragleave', function() {
+    dropArea.classList.remove('dragover');
+  });
+  dropArea.addEventListener('drop', function(e) {
+    e.preventDefault();
+    dropArea.classList.remove('dragover');
+    handleFiles(e.dataTransfer.files);
+  });
+  fileInput.addEventListener('change', function() {
+    handleFiles(fileInput.files);
+    fileInput.value = '';
+  });
+
+  function handleFiles(fileList) {
+    for (var i = 0; i < fileList.length; i++) {
+      if (slots.length >= MAX_VIDEOS) break;
+      var f = fileList[i];
+      var ext = getExtension(f.name);
+      if (ext !== 'webm' && ext !== 'mov') continue;
+      addVideo(f);
+    }
+  }
+
+  function addVideo(file) {
+    var url = URL.createObjectURL(file);
+    var idx = slots.length;
+    var color = RACER_COLORS[idx % RACER_COLORS.length];
+    var baseName = file.name.replace(/\.[^.]+$/, '');
+
+    // Create video element
+    var div = document.createElement('div');
+    div.className = 'racer';
+    div.id = 'racer' + idx;
+
+    var label = document.createElement('div');
+    label.className = 'racer-label';
+    label.style.color = color;
+    label.textContent = baseName;
+
+    var video = document.createElement('video');
+    video.id = 'vid' + idx;
+    video.src = url;
+    video.preload = 'auto';
+    video.muted = true;
+    video.playsInline = true;
+
+    var removeBtn = document.createElement('button');
+    removeBtn.className = 'remove-btn';
+    removeBtn.textContent = '\u00D7';
+    removeBtn.title = 'Remove';
+    removeBtn.setAttribute('data-idx', String(idx));
+
+    div.appendChild(label);
+    div.appendChild(video);
+    div.appendChild(removeBtn);
+    playerContainer.appendChild(div);
+
+    var slot = {
+      file: file,
+      objectUrl: url,
+      videoEl: video,
+      containerEl: div,
+      name: baseName,
+      trimStart: 0,
+      trimEnd: 0, // set on loadedmetadata
+      duration: 0,
+      index: idx
+    };
+    slots.push(slot);
+
+    video.addEventListener('loadedmetadata', function() {
+      slot.duration = video.duration;
+      if (slot.trimEnd === 0) slot.trimEnd = video.duration;
+      updateUI();
+    });
+
+    video.addEventListener('timeupdate', function() {
+      if (slot === slots[0]) onPrimaryTimeUpdate();
+    });
+
+    video.addEventListener('ended', function() {
+      if (slot === slots[0]) {
+        playing = false;
+        playBtn.textContent = '\u25B6';
+      }
+    });
+
+    removeBtn.addEventListener('click', function() {
+      removeVideo(slot);
+    });
+
+    updateUI();
+    // Update max-width per count
+    updateLayout();
+  }
+
+  function removeVideo(slot) {
+    var i = slots.indexOf(slot);
+    if (i === -1) return;
+    if (playing) { pauseAll(); }
+    URL.revokeObjectURL(slot.objectUrl);
+    slot.containerEl.remove();
+    slots.splice(i, 1);
+    // Re-index remaining slots and re-color
+    for (var j = 0; j < slots.length; j++) {
+      slots[j].index = j;
+      var label = slots[j].containerEl.querySelector('.racer-label');
+      if (label) label.style.color = RACER_COLORS[j % RACER_COLORS.length];
+      slots[j].containerEl.querySelector('.remove-btn').setAttribute('data-idx', String(j));
+      slots[j].containerEl.id = 'racer' + j;
+      slots[j].videoEl.id = 'vid' + j;
+    }
+    updateLayout();
+    updateUI();
+  }
+
+  function updateLayout() {
+    var count = slots.length;
+    var maxW = count <= 2 ? 680 : count === 3 ? 450 : 340;
+    for (var i = 0; i < slots.length; i++) {
+      slots[i].containerEl.style.maxWidth = maxW + 'px';
+    }
+  }
+
+  function updateUI() {
+    var hasVideos = slots.length > 0;
+    playerContainer.classList.toggle('visible', hasVideos);
+    controls.classList.toggle('visible', hasVideos);
+    trimSection.classList.toggle('visible', hasVideos);
+    statsSection.classList.toggle('visible', hasVideos);
+    exportSection.classList.toggle('visible', slots.length >= 1);
+
+    // Hide drop area if max reached
+    if (slots.length >= MAX_VIDEOS) {
+      dropArea.style.display = 'none';
+    } else {
+      dropArea.style.display = '';
+    }
+
+    buildTrimControls();
+    buildStats();
+  }
+
+  // --- Trim Controls ---
+  function buildTrimControls() {
+    trimRows.innerHTML = '';
+    for (var i = 0; i < slots.length; i++) {
+      (function(idx) {
+        var s = slots[idx];
+        var color = RACER_COLORS[idx % RACER_COLORS.length];
+        var row = document.createElement('div');
+        row.className = 'trim-row';
+
+        var nameSpan = document.createElement('span');
+        nameSpan.className = 'racer-name';
+        nameSpan.style.color = color;
+        nameSpan.textContent = s.name;
+        row.appendChild(nameSpan);
+
+        // Start controls
+        var startGroup = document.createElement('span');
+        startGroup.className = 'trim-group';
+        var startLabel = document.createElement('span');
+        startLabel.className = 'trim-label';
+        startLabel.textContent = 'Start';
+        startGroup.appendChild(startLabel);
+
+        var startMinus = document.createElement('button');
+        startMinus.className = 'trim-step-btn';
+        startMinus.textContent = '-0.1';
+        startMinus.addEventListener('click', function() {
+          s.trimStart = clamp(+(s.trimStart - STEP).toFixed(1), 0, s.trimEnd - STEP);
+          updateUI();
+        });
+        startGroup.appendChild(startMinus);
+
+        var startInput = document.createElement('input');
+        startInput.type = 'number';
+        startInput.className = 'trim-input';
+        startInput.step = '0.1';
+        startInput.min = '0';
+        startInput.max = String(s.duration);
+        startInput.value = s.trimStart.toFixed(1);
+        startInput.addEventListener('change', function() {
+          var v = parseFloat(startInput.value);
+          if (isNaN(v)) v = 0;
+          s.trimStart = clamp(+(v).toFixed(1), 0, s.trimEnd - STEP);
+          updateUI();
+        });
+        startGroup.appendChild(startInput);
+
+        var startPlus = document.createElement('button');
+        startPlus.className = 'trim-step-btn';
+        startPlus.textContent = '+0.1';
+        startPlus.addEventListener('click', function() {
+          s.trimStart = clamp(+(s.trimStart + STEP).toFixed(1), 0, s.trimEnd - STEP);
+          updateUI();
+        });
+        startGroup.appendChild(startPlus);
+        row.appendChild(startGroup);
+
+        // End controls
+        var endGroup = document.createElement('span');
+        endGroup.className = 'trim-group';
+        var endLabel = document.createElement('span');
+        endLabel.className = 'trim-label';
+        endLabel.textContent = 'End';
+        endGroup.appendChild(endLabel);
+
+        var endMinus = document.createElement('button');
+        endMinus.className = 'trim-step-btn';
+        endMinus.textContent = '-0.1';
+        endMinus.addEventListener('click', function() {
+          s.trimEnd = clamp(+(s.trimEnd - STEP).toFixed(1), s.trimStart + STEP, s.duration);
+          updateUI();
+        });
+        endGroup.appendChild(endMinus);
+
+        var endInput = document.createElement('input');
+        endInput.type = 'number';
+        endInput.className = 'trim-input';
+        endInput.step = '0.1';
+        endInput.min = '0';
+        endInput.max = String(s.duration);
+        endInput.value = s.trimEnd.toFixed(1);
+        endInput.addEventListener('change', function() {
+          var v = parseFloat(endInput.value);
+          if (isNaN(v)) v = s.duration;
+          s.trimEnd = clamp(+(v).toFixed(1), s.trimStart + STEP, s.duration);
+          updateUI();
+        });
+        endGroup.appendChild(endInput);
+
+        var endPlus = document.createElement('button');
+        endPlus.className = 'trim-step-btn';
+        endPlus.textContent = '+0.1';
+        endPlus.addEventListener('click', function() {
+          s.trimEnd = clamp(+(s.trimEnd + STEP).toFixed(1), s.trimStart + STEP, s.duration);
+          updateUI();
+        });
+        endGroup.appendChild(endPlus);
+        row.appendChild(endGroup);
+
+        // Duration display
+        var durSpan = document.createElement('span');
+        durSpan.className = 'trim-duration';
+        var trimmed = Math.max(0, s.trimEnd - s.trimStart);
+        durSpan.textContent = '(' + trimmed.toFixed(1) + 's)';
+        row.appendChild(durSpan);
+
+        // Reset button
+        var resetBtn = document.createElement('button');
+        resetBtn.className = 'trim-reset-btn';
+        resetBtn.textContent = 'Reset';
+        resetBtn.addEventListener('click', function() {
+          s.trimStart = 0;
+          s.trimEnd = s.duration;
+          updateUI();
+        });
+        row.appendChild(resetBtn);
+
+        trimRows.appendChild(row);
+      })(i);
+    }
+  }
+
+  // --- Statistics ---
+  function buildStats() {
+    statsBody.innerHTML = '';
+    var totalDuration = 0;
+    var totalSize = 0;
+    for (var i = 0; i < slots.length; i++) {
+      var s = slots[i];
+      var color = RACER_COLORS[i % RACER_COLORS.length];
+      var ext = getExtension(s.file.name);
+      var res = s.videoEl.videoWidth && s.videoEl.videoHeight
+        ? s.videoEl.videoWidth + '\u00D7' + s.videoEl.videoHeight
+        : '\u2014';
+      var trimmed = Math.max(0, s.trimEnd - s.trimStart);
+      totalDuration += trimmed;
+      totalSize += s.file.size;
+
+      var tr = document.createElement('tr');
+      tr.innerHTML =
+        '<td style="color:' + color + ';font-weight:bold">' + escHtml(s.name) + '</td>' +
+        '<td>' + ext.toUpperCase() + '</td>' +
+        '<td>' + res + '</td>' +
+        '<td>' + s.duration.toFixed(1) + 's</td>' +
+        '<td>' + trimmed.toFixed(1) + 's</td>' +
+        '<td>' + humanSize(s.file.size) + '</td>';
+      statsBody.appendChild(tr);
+    }
+    statsSummary.textContent = slots.length + ' video' + (slots.length !== 1 ? 's' : '') +
+      ' \u00B7 Total trimmed duration: ' + totalDuration.toFixed(1) + 's' +
+      ' \u00B7 Total size: ' + humanSize(totalSize);
+  }
+
+  function escHtml(str) {
+    var div = document.createElement('div');
+    div.textContent = str;
+    return div.innerHTML;
+  }
+
+  // --- Playback ---
+  function getGlobalClip() {
+    if (slots.length === 0) return { start: 0, end: 0 };
+    var minStart = Infinity, maxEnd = 0;
+    for (var i = 0; i < slots.length; i++) {
+      minStart = Math.min(minStart, slots[i].trimStart);
+      maxEnd = Math.max(maxEnd, slots[i].trimEnd);
+    }
+    return { start: minStart, end: maxEnd };
+  }
+
+  function seekAll(t) {
+    for (var i = 0; i < slots.length; i++) {
+      var s = slots[i];
+      var target = clamp(t, s.trimStart, s.trimEnd);
+      s.videoEl.currentTime = Math.min(target, s.videoEl.duration || target);
+    }
+  }
+
+  function pauseAll() {
+    for (var i = 0; i < slots.length; i++) {
+      slots[i].videoEl.pause();
+    }
+    playing = false;
+    playBtn.textContent = '\u25B6';
+  }
+
+  function onPrimaryTimeUpdate() {
+    if (slots.length === 0) return;
+    var clip = getGlobalClip();
+    var primary = slots[0].videoEl;
+    var cur = primary.currentTime;
+
+    // Enforce trim end boundary
+    if (cur >= slots[0].trimEnd) {
+      pauseAll();
+      seekAll(clip.end);
+    }
+
+    // Also check per-video end boundaries
+    for (var i = 1; i < slots.length; i++) {
+      if (slots[i].videoEl.currentTime >= slots[i].trimEnd) {
+        slots[i].videoEl.pause();
+        slots[i].videoEl.currentTime = slots[i].trimEnd;
+      }
+    }
+
+    var d = clip.end - clip.start;
+    var t = cur - clip.start;
+    if (d > 0) {
+      scrubber.value = Math.round((Math.max(0, t) / d) * 1000);
+    }
+    timeDisplay.textContent = fmt(Math.max(0, t)) + ' / ' + fmt(d);
+    frameDisplay.textContent = Math.max(0, t).toFixed(1) + 's';
+  }
+
+  playBtn.addEventListener('click', function() {
+    if (slots.length === 0) return;
+    if (playing) {
+      pauseAll();
+    } else {
+      var clip = getGlobalClip();
+      // If at end, restart
+      if (slots[0].videoEl.currentTime >= slots[0].trimEnd - STEP) {
+        seekAll(clip.start);
+      }
+      for (var i = 0; i < slots.length; i++) {
+        if (slots[i].videoEl.currentTime < slots[i].trimEnd) {
+          slots[i].videoEl.play();
+        }
+      }
+      playing = true;
+      playBtn.textContent = '\u23F8';
+    }
+  });
+
+  scrubber.addEventListener('input', function() {
+    var clip = getGlobalClip();
+    var d = clip.end - clip.start;
+    var t = (scrubber.value / 1000) * d + clip.start;
+    seekAll(t);
+  });
+
+  speedSelect.addEventListener('change', function() {
+    var rate = parseFloat(speedSelect.value);
+    for (var i = 0; i < slots.length; i++) {
+      slots[i].videoEl.playbackRate = rate;
+    }
+  });
+
+  function stepFrame(delta) {
+    if (slots.length === 0) return;
+    if (playing) pauseAll();
+    var clip = getGlobalClip();
+    // Use the max current time across videos
+    var cur = 0;
+    for (var i = 0; i < slots.length; i++) {
+      cur = Math.max(cur, slots[i].videoEl.currentTime || 0);
+    }
+    var t = clamp(cur + delta, clip.start, clip.end);
+    seekAll(t);
+  }
+
+  document.getElementById('prevFrame').addEventListener('click', function() { stepFrame(-STEP); });
+  document.getElementById('nextFrame').addEventListener('click', function() { stepFrame(STEP); });
+
+  document.addEventListener('keydown', function(e) {
+    if (e.target.tagName === 'SELECT' || e.target.tagName === 'INPUT') return;
+    if (e.key === 'ArrowLeft') { e.preventDefault(); stepFrame(-STEP); }
+    else if (e.key === 'ArrowRight') { e.preventDefault(); stepFrame(STEP); }
+    else if (e.key === ' ') { e.preventDefault(); playBtn.click(); }
+  });
+
+  // --- FFmpeg WASM Export ---
+  var ffmpegInstance = null;
+  var ffmpegLoaded = false;
+  var ffmpegLoading = false;
+
+  // Fetch a URL and return it as a blob URL (bypasses CORS for ffmpeg core files)
+  async function toBlobURL(url, mimeType) {
+    var resp = await fetch(url);
+    var body = await resp.blob();
+    var blob = new Blob([body], { type: mimeType });
+    return URL.createObjectURL(blob);
+  }
+
+  async function loadFFmpeg(logFn) {
+    if (ffmpegLoaded && ffmpegInstance) return ffmpegInstance;
+    if (ffmpegLoading) {
+      while (ffmpegLoading) await new Promise(function(r) { setTimeout(r, 200); });
+      return ffmpegInstance;
+    }
+    ffmpegLoading = true;
+    logFn('Loading FFmpeg WASM library...');
+
+    // Load the UMD build of @ffmpeg/ffmpeg via script tag
+    if (!window.FFmpegWASM) {
+      await new Promise(function(resolve, reject) {
+        var s = document.createElement('script');
+        s.src = 'https://unpkg.com/@ffmpeg/ffmpeg@0.12.15/dist/umd/ffmpeg.js';
+        s.onload = resolve;
+        s.onerror = function() { reject(new Error('Failed to load ffmpeg.js from CDN')); };
+        document.head.appendChild(s);
+      });
+    }
+
+    var FFmpeg = window.FFmpegWASM.FFmpeg;
+    var ff = new FFmpeg();
+    ff.on('log', function(msg) {
+      logFn(msg.message || msg);
+    });
+
+    // Use single-threaded core (no SharedArrayBuffer requirement)
+    var baseURL = 'https://unpkg.com/@ffmpeg/core@0.12.10/dist/umd';
+    logFn('Downloading FFmpeg core (~32 MB WASM)...');
+
+    var coreURL = await toBlobURL(baseURL + '/ffmpeg-core.js', 'text/javascript');
+    var wasmURL = await toBlobURL(baseURL + '/ffmpeg-core.wasm', 'application/wasm');
+
+    await ff.load({ coreURL: coreURL, wasmURL: wasmURL });
+    logFn('FFmpeg WASM loaded successfully.');
+
+    ffmpegInstance = ff;
+    ffmpegLoaded = true;
+    ffmpegLoading = false;
+    return ff;
+  }
+
+  async function readFileAsUint8Array(file) {
+    return new Promise(function(resolve, reject) {
+      var reader = new FileReader();
+      reader.onload = function() { resolve(new Uint8Array(reader.result)); };
+      reader.onerror = reject;
+      reader.readAsArrayBuffer(file);
+    });
+  }
+
+  exportBtn.addEventListener('click', async function() {
+    if (slots.length < 1) return;
+    var format = exportFormat.value;
+
+    // Create overlay
+    var overlay = document.createElement('div');
+    overlay.className = 'export-overlay';
+    overlay.innerHTML =
+      '<div class="export-modal">' +
+        '<h3>Exporting Side-by-Side</h3>' +
+        '<div class="export-progress-bar"><div class="export-progress-fill" id="exportProgressFill"></div></div>' +
+        '<div class="export-status" id="exportStatus">Preparing...</div>' +
+        '<div class="export-log" id="exportLog"></div>' +
+        '<div class="export-actions" id="exportActions"><button id="exportCancel">Cancel</button></div>' +
+      '</div>';
+    document.body.appendChild(overlay);
+
+    var progressFill = document.getElementById('exportProgressFill');
+    var statusEl = document.getElementById('exportStatus');
+    var logEl = document.getElementById('exportLog');
+    var actionsEl = document.getElementById('exportActions');
+    var cancelled = false;
+
+    function log(msg) {
+      logEl.textContent += msg + '\n';
+      logEl.scrollTop = logEl.scrollHeight;
+    }
+
+    document.getElementById('exportCancel').addEventListener('click', function() {
+      cancelled = true;
+      overlay.remove();
+    });
+
+    try {
+      statusEl.textContent = 'Loading FFmpeg...';
+      var ff = await loadFFmpeg(log);
+      if (cancelled) return;
+
+      statusEl.textContent = 'Writing video files...';
+      var inputNames = [];
+      var trimArgs = [];
+      var filterInputs = [];
+      var count = slots.length;
+
+      // Determine target dimensions
+      var targetW = count <= 3 ? 640 : 480;
+      var sample = slots[0].videoEl;
+      var aspect = sample.videoHeight / sample.videoWidth || 9/16;
+      var targetH = Math.round(targetW * aspect);
+      // Ensure even dimensions
+      if (targetH % 2 !== 0) targetH++;
+
+      for (var i = 0; i < count; i++) {
+        if (cancelled) return;
+        var s = slots[i];
+        var ext = getExtension(s.file.name);
+        var inputName = 'input' + i + '.' + ext;
+        inputNames.push(inputName);
+
+        statusEl.textContent = 'Reading file ' + (i + 1) + '/' + count + '...';
+        progressFill.style.width = ((i / count) * 30).toFixed(0) + '%';
+        var data = await readFileAsUint8Array(s.file);
+        if (cancelled) return;
+
+        log('Writing ' + s.file.name + ' (' + humanSize(data.length) + ') to virtual FS...');
+        await ff.writeFile(inputName, data);
+      }
+
+      if (cancelled) return;
+      statusEl.textContent = 'Encoding...';
+      progressFill.style.width = '30%';
+
+      // Build FFmpeg command
+      var args = [];
+      for (var i = 0; i < count; i++) {
+        var s = slots[i];
+        args.push('-ss', s.trimStart.toFixed(1));
+        args.push('-t', (s.trimEnd - s.trimStart).toFixed(1));
+        args.push('-i', inputNames[i]);
+      }
+
+      // Build filter complex for side-by-side
+      var filterParts = [];
+      for (var i = 0; i < count; i++) {
+        filterParts.push('[' + i + ':v]scale=' + targetW + ':' + targetH + ':force_original_aspect_ratio=decrease,pad=' + targetW + ':' + targetH + ':(ow-iw)/2:(oh-ih)/2[s' + i + ']');
+      }
+
+      var layoutFilter;
+      if (count === 1) {
+        layoutFilter = '[s0]null[out]';
+      } else if (count === 2) {
+        layoutFilter = '[s0][s1]hstack=inputs=2[out]';
+      } else if (count === 3) {
+        layoutFilter = '[s0][s1][s2]hstack=inputs=3[out]';
+      } else {
+        // 4: 2x2 grid
+        layoutFilter = '[s0][s1]hstack=inputs=2[top];[s2][s3]hstack=inputs=2[bot];[top][bot]vstack=inputs=2[out]';
+      }
+      filterParts.push(layoutFilter);
+
+      args.push('-filter_complex', filterParts.join(';'));
+      args.push('-map', '[out]');
+
+      // Output format-specific args
+      var outputName;
+      if (format === 'mov') {
+        outputName = 'output.mp4'; // use mp4 container for broader compat
+        args.push('-c:v', 'libx264', '-preset', 'fast', '-crf', '23', '-pix_fmt', 'yuv420p');
+        args.push('-movflags', '+faststart');
+      } else if (format === 'gif') {
+        // Two-pass GIF: generate palette then encode
+        outputName = 'output.gif';
+        // For GIF, we re-run with palette generation
+        var gifFilter = filterParts.slice(0, -1).join(';');
+        var gifLayoutFilter = layoutFilter.replace('[out]', '[pre]');
+        var paletteArgs = [];
+        for (var i = 0; i < count; i++) {
+          var s = slots[i];
+          paletteArgs.push('-ss', s.trimStart.toFixed(1));
+          paletteArgs.push('-t', (s.trimEnd - s.trimStart).toFixed(1));
+          paletteArgs.push('-i', inputNames[i]);
+        }
+        paletteArgs.push('-filter_complex',
+          gifFilter + ';' + gifLayoutFilter + ';[pre]fps=12,scale=-1:-1:flags=lanczos[scaled];[scaled]palettegen=max_colors=128[pal]'
+        );
+        paletteArgs.push('-map', '[pal]', '-y', 'palette.png');
+
+        log('Pass 1: Generating palette...');
+        await ff.exec(paletteArgs);
+        if (cancelled) return;
+        progressFill.style.width = '60%';
+
+        // Pass 2: encode with palette
+        var pass2Args = [];
+        for (var i = 0; i < count; i++) {
+          var s = slots[i];
+          pass2Args.push('-ss', s.trimStart.toFixed(1));
+          pass2Args.push('-t', (s.trimEnd - s.trimStart).toFixed(1));
+          pass2Args.push('-i', inputNames[i]);
+        }
+        pass2Args.push('-i', 'palette.png');
+        var paletteIdx = count;
+        pass2Args.push('-filter_complex',
+          gifFilter + ';' + gifLayoutFilter + ';[pre]fps=12,scale=-1:-1:flags=lanczos[scaled];[scaled][' + paletteIdx + ':v]paletteuse=dither=bayer:bayer_scale=3[out]'
+        );
+        pass2Args.push('-map', '[out]', '-y', outputName);
+
+        log('Pass 2: Encoding GIF...');
+        await ff.exec(pass2Args);
+        if (cancelled) return;
+        progressFill.style.width = '95%';
+
+      } else {
+        // WebM
+        outputName = 'output.webm';
+        args.push('-c:v', 'libvpx-vp9', '-crf', '30', '-b:v', '0', '-deadline', 'realtime', '-cpu-used', '4');
+      }
+
+      if (format !== 'gif') {
+        args.push('-an', '-y', outputName);
+        log('Encoding ' + format.toUpperCase() + '...');
+        log('FFmpeg args: ' + args.join(' '));
+
+        // Track progress
+        var totalDur = 0;
+        for (var i = 0; i < count; i++) {
+          totalDur = Math.max(totalDur, slots[i].trimEnd - slots[i].trimStart);
+        }
+        ff.on('progress', function(p) {
+          if (cancelled) return;
+          var pct = 30 + Math.min(65, (p.progress || 0) * 65);
+          progressFill.style.width = pct.toFixed(0) + '%';
+          statusEl.textContent = 'Encoding... ' + Math.round(p.progress * 100) + '%';
+        });
+
+        await ff.exec(args);
+        if (cancelled) return;
+        progressFill.style.width = '95%';
+      }
+
+      statusEl.textContent = 'Reading output...';
+      var outData = await ff.readFile(outputName);
+      if (cancelled) return;
+
+      var mimeType = format === 'mov' ? 'video/mp4' : format === 'gif' ? 'image/gif' : 'video/webm';
+      var blob = new Blob([outData.buffer], { type: mimeType });
+      var url = URL.createObjectURL(blob);
+
+      progressFill.style.width = '100%';
+      statusEl.textContent = 'Export complete! (' + humanSize(blob.size) + ')';
+
+      var downloadExt = format === 'mov' ? 'mp4' : format;
+      actionsEl.innerHTML = '';
+      var dlLink = document.createElement('a');
+      dlLink.href = url;
+      dlLink.download = 'race-side-by-side.' + downloadExt;
+      dlLink.textContent = 'Download';
+      var closeBtn = document.createElement('button');
+      closeBtn.textContent = 'Close';
+      closeBtn.addEventListener('click', function() {
+        URL.revokeObjectURL(url);
+        overlay.remove();
+      });
+      actionsEl.appendChild(dlLink);
+      actionsEl.appendChild(closeBtn);
+
+      // Cleanup virtual FS
+      for (var i = 0; i < inputNames.length; i++) {
+        try { await ff.deleteFile(inputNames[i]); } catch(e) {}
+      }
+      try { await ff.deleteFile(outputName); } catch(e) {}
+      try { await ff.deleteFile('palette.png'); } catch(e) {}
+
+    } catch (err) {
+      if (!cancelled) {
+        log('ERROR: ' + (err.message || err));
+        statusEl.textContent = 'Export failed.';
+        statusEl.style.color = '#e74c3c';
+      }
+    }
+  });
+
+})();
+</script>
+</body>
+</html>
