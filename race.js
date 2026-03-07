@@ -170,12 +170,9 @@ export async function runSingleRace(ctx, runDir, runNavigation = null) {
     const b = result.browsers?.[i];
     const segs = b?.recordingSegments;
     if (!segs || segs.length === 0) return null;
-    const calSegs = b?.calibratedSegments;
     return {
       start: segs[0].start,
       end: segs[0].end,
-      calibratedStart: calSegs?.[0]?.start ?? null,
-      calibratedEnd: calSegs?.[0]?.end ?? null,
       recordingOffset: b?.recordingOffset || 0,
       wallClockDuration: b?.wallClockDuration || 0,
       measurements: b?.measurements || [],

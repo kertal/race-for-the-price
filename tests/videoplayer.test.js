@@ -431,30 +431,42 @@ describe('buildPlayerHtml clipTimes', () => {
     expect(html).toContain('recordingOffset');
   });
 
-  it('embeds calibratedStart/End in clipTimes JSON when present', () => {
+  it('includes canvas-based calibration with localStorage cache', () => {
     const clips = [
-      { start: 1.5, end: 3, calibratedStart: 0.28, calibratedEnd: 1.78, recordingOffset: 0.01, wallClockDuration: 5 },
-      { start: 1.2, end: 2.8, calibratedStart: 0.24, calibratedEnd: 1.84, recordingOffset: 0.01, wallClockDuration: 5 },
+      { start: 1, end: 3, recordingOffset: 0.1, wallClockDuration: 5 },
+      { start: 1, end: 3, recordingOffset: 0.1, wallClockDuration: 5 },
     ];
     const html = withClips(clips);
-    const clipMatch = html.match(/const clipTimes = (\[.*?\]);/);
-    expect(clipMatch).toBeTruthy();
-    const parsed = JSON.parse(clipMatch[1]);
-    expect(parsed[0].calibratedStart).toBe(0.28);
-    expect(parsed[0].calibratedEnd).toBe(1.78);
-    expect(parsed[1].calibratedStart).toBe(0.24);
-    expect(parsed[1].calibratedEnd).toBe(1.84);
+    expect(html).toContain('detectGreenCuePts');
+    expect(html).toContain('calibrateFromCanvas');
+    expect(html).toContain('isGreenCue');
+    expect(html).toContain('canvasCalibrationStarted');
+    expect(html).toContain('drawImage');
+    expect(html).toContain('getImageData');
+    expect(html).toContain('loadCalibrationCache');
+    expect(html).toContain('saveCalibrationCache');
+    expect(html).toContain('restoreFromCache');
+    expect(html).toContain('localStorage');
   });
 
-  it('uses calibrated PTS in onMeta when calibratedStart is present', () => {
+  it('scans from 0 up to 60% of video duration for green cue', () => {
     const clips = [
-      { start: 1, end: 3, calibratedStart: 0.3, calibratedEnd: 1.8, recordingOffset: 0.1, wallClockDuration: 5 },
-      { start: 1, end: 3, calibratedStart: 0.3, calibratedEnd: 1.8, recordingOffset: 0.1, wallClockDuration: 5 },
+      { start: 1, end: 3, recordingOffset: 0.1, wallClockDuration: 5 },
+      { start: 1, end: 3, recordingOffset: 0.1, wallClockDuration: 5 },
     ];
     const html = withClips(clips);
-    expect(html).toContain('calibratedStart');
-    expect(html).toContain('calibratedEnd');
-    expect(html).toContain('ct.start = ct.calibratedStart');
+    expect(html).toContain('v.duration * 0.6');
+    expect(html).toContain('var t = 0');
+  });
+
+  it('uses 0.08s coarse step for reliable 2-frame cue detection', () => {
+    const clips = [
+      { start: 1, end: 3, recordingOffset: 0.1, wallClockDuration: 5 },
+      { start: 1, end: 3, recordingOffset: 0.1, wallClockDuration: 5 },
+    ];
+    const html = withClips(clips);
+    expect(html).toContain('FRAME_DT * 2');
+    expect(html).toContain('FRAME_DT = 0.04');
   });
 });
 

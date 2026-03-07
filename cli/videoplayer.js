@@ -389,6 +389,164 @@ function buildPlayerScript(config) {
   const STEP = 0.1; // 100ms step — reliable even with dropped frames
   var loadedSrcSet = 'race';
   var pendingSeek = null;
+  var canvasCalibrationStarted = false;
+
+  // --- Canvas calibration cache (localStorage) ---
+  var CALIBRATION_CACHE_KEY = 'raceCalibration:' + raceVideoPaths.join('|');
+
+  function loadCalibrationCache() {
+    try {
+      var raw = localStorage.getItem(CALIBRATION_CACHE_KEY);
+      return raw ? JSON.parse(raw) : null;
+    } catch (e) { return null; }
+  }
+
+  function saveCalibrationCache() {
+    if (!clipTimes) return;
+    try {
+      var entries = clipTimes.map(function(ct) {
+        if (!ct || ct.calibratedStart == null) return null;
+        return { calibratedStart: ct.calibratedStart, calibratedEnd: ct.calibratedEnd };
+      });
+      localStorage.setItem(CALIBRATION_CACHE_KEY, JSON.stringify(entries));
+    } catch (e) {}
+  }
+
+  // --- Canvas-based PTS calibration ---
+  // Detects the green calibration cue (30px square, top-left corner) by sampling
+  // a 10×10 region from the center of the cue via the Canvas API.
+  var CUE_DETECT_SIZE = 10;
+  var FRAME_DT = 0.04;       // 25fps PTS interval
+
+  function seekVideoTo(video, time) {
+    return new Promise(function(resolve, reject) {
+      if (Math.abs(video.currentTime - time) < 0.001) { resolve(); return; }
+      var timer = setTimeout(function() {
+        video.removeEventListener('seeked', onSeeked);
+        reject(new Error('seek timeout'));
+      }, 2000);
+      function onSeeked() { clearTimeout(timer); resolve(); }
+      video.addEventListener('seeked', onSeeked, { once: true });
+      video.currentTime = time;
+    });
+  }
+
+  function isGreenCue(data) {
+    var greenPx = 0;
+    var total = data.length / 4;
+    for (var j = 0; j < data.length; j += 4) {
+      if (data[j] < 100 && data[j + 1] > 150 && data[j + 2] < 100) greenPx++;
+    }
+    return greenPx > total * 0.4;
+  }
+
+  function detectGreenCuePts(video, scanTo) {
+    var canvas = document.createElement('canvas');
+    canvas.width = CUE_DETECT_SIZE;
+    canvas.height = CUE_DETECT_SIZE;
+    var ctx = canvas.getContext('2d', { willReadFrequently: true });
+    var endT = Math.min(video.duration || 0, scanTo || video.duration || 0);
+    // Sample 10×10 from pixel (5,5) — center of the 30px cue, avoids edge artifacts
+    var srcOffset = 5;
+
+    function checkFrame(t) {
+      return seekVideoTo(video, t).then(function() {
+        ctx.drawImage(video, srcOffset, srcOffset, CUE_DETECT_SIZE, CUE_DETECT_SIZE, 0, 0, CUE_DETECT_SIZE, CUE_DETECT_SIZE);
+        return isGreenCue(ctx.getImageData(0, 0, CUE_DETECT_SIZE, CUE_DETECT_SIZE).data);
+      });
+    }
+
+    // Coarse step = 0.08s (2 frames). Guarantees catching cues with as few as 2 frames.
+    var coarseStep = FRAME_DT * 2;
+    var t = 0;
+    function coarseScan() {
+      if (t > endT) return Promise.resolve(null);
+      return checkFrame(t).then(function(found) {
+        if (found) return t;
+        t += coarseStep;
+        return coarseScan();
+      });
+    }
+
+    // Fine scan backward from coarse hit to find the first green frame
+    function fineScan(hit) {
+      if (hit === null) return Promise.resolve(null);
+      var fineStart = Math.max(0, hit - coarseStep);
+      var firstGreen = hit;
+      var ft = fineStart;
+      function fineStep() {
+        if (ft >= hit) return Promise.resolve(Math.max(0, firstGreen - FRAME_DT));
+        return checkFrame(ft).then(function(found) {
+          if (found) { firstGreen = ft; return Promise.resolve(Math.max(0, firstGreen - FRAME_DT)); }
+          ft += FRAME_DT;
+          return fineStep();
+        });
+      }
+      return fineStep();
+    }
+
+    return coarseScan().then(fineScan).catch(function(e) {
+      console.warn('Canvas cue detection failed:', e.message);
+      return null;
+    });
+  }
+
+  function applyCalibrationToClip(ct, ptsStart, videoDuration) {
+    var segDuration = ct._wcEnd - ct._wcStart;
+    ct.calibratedStart = ptsStart;
+    ct.calibratedEnd = ptsStart + segDuration;
+    ct._ptsScale = null;
+    ct.start = ptsStart;
+    ct.end = Math.min(ptsStart + segDuration, videoDuration);
+    ct._converted = true;
+  }
+
+  function restoreFromCache() {
+    var cached = loadCalibrationCache();
+    if (!cached || !clipTimes) return false;
+    var applied = false;
+    for (var i = 0; i < clipTimes.length; i++) {
+      var ct = clipTimes[i];
+      var entry = cached[i];
+      var v = raceVideos[i];
+      if (!ct || !entry || !v || !v.duration || ct._wcStart == null || ct.calibratedStart != null) continue;
+      if (entry.calibratedStart != null) {
+        applyCalibrationToClip(ct, entry.calibratedStart, v.duration);
+        applied = true;
+      }
+    }
+    return applied;
+  }
+
+  function calibrateFromCanvas() {
+    if (!clipTimes) return Promise.resolve(false);
+    var idx = 0;
+    var anyCalibrated = false;
+
+    function next() {
+      if (idx >= raceVideos.length) return Promise.resolve(anyCalibrated);
+      var v = raceVideos[idx];
+      var ct = clipTimes[idx];
+      idx++;
+      if (!v || !ct || ct._wcStart == null || ct.calibratedStart != null) return next();
+
+      var savedTime = v.currentTime;
+      // Scan up to 60% of video — covers non-linear PTS mapping from heavy rendering
+      var scanTo = v.duration * 0.6;
+      return detectGreenCuePts(v, scanTo).then(function(ptsStart) {
+        if (ptsStart !== null) {
+          applyCalibrationToClip(ct, ptsStart, v.duration);
+          anyCalibrated = true;
+        }
+        return seekVideoTo(v, savedTime).catch(function() {});
+      }).then(next);
+    }
+
+    return next().then(function(any) {
+      if (any) saveCalibrationCache();
+      return any;
+    });
+  }
 
   function fmt(s) {
     const m = Math.floor(s / 60);
@@ -440,34 +598,23 @@ function buildPlayerScript(config) {
 
   function onMeta() {
     duration = Math.max(...videos.filter(v => v).map(v => v.duration || 0));
-    // Convert wall-clock clipTimes to PTS space using actual video durations.
-    // Chromium's VP8 encoder assigns sequential PTS at 25fps regardless of actual
-    // capture rate, so wall-clock times don't match video.currentTime directly.
-    // When calibratedStart/End are available (from cue frame detection via ffprobe),
-    // use those directly — they are already in PTS space and bypass the inaccurate
-    // global linear scale.
+    // Convert wall-clock clipTimes to PTS space using a linear scale as an
+    // immediate approximation.  Canvas-based calibration (or its localStorage
+    // cache) will override these values once all metadata has loaded.
     if (clipTimes) {
       for (var i = 0; i < clipTimes.length; i++) {
         if (!isValidClipEntry(clipTimes[i]) || !videos[i] || !videos[i].duration) continue;
         var ct = clipTimes[i];
         if (ct._converted) continue;
-        ct._wcStart = ct.start;
-        ct._wcEnd = ct.end;
-        if (ct.calibratedStart != null && ct.calibratedEnd != null) {
-          ct._ptsScale = null;
-          ct.start = ct.calibratedStart;
-          ct.end = Math.min(ct.calibratedEnd, videos[i].duration);
+        if (ct._wcStart == null) { ct._wcStart = ct.start; ct._wcEnd = ct.end; }
+        var wcd = ct.wallClockDuration;
+        var offset = ct.recordingOffset || 0;
+        if (wcd > 0) {
+          var scale = videos[i].duration / wcd;
+          ct._ptsScale = scale;
+          ct.start = (ct.start + offset) * scale;
+          ct.end = (ct.end + offset) * scale;
           ct._converted = true;
-        } else {
-          var wcd = ct.wallClockDuration;
-          var offset = ct.recordingOffset || 0;
-          if (wcd > 0) {
-            var scale = videos[i].duration / wcd;
-            ct._ptsScale = scale;
-            ct.start = (ct.start + offset) * scale;
-            ct.end = (ct.end + offset) * scale;
-            ct._converted = true;
-          }
         }
       }
     }
@@ -479,6 +626,27 @@ function buildPlayerScript(config) {
       var fn = pendingSeek;
       pendingSeek = null;
       fn();
+    }
+
+    // Once all videos have metadata, apply cached or canvas-based calibration
+    // to get frame-accurate clip positions without ffprobe.
+    if (!canvasCalibrationStarted && clipTimes &&
+        raceVideos.every(function(v) { return !v || v.readyState >= 1; })) {
+      var needsCalibration = clipTimes.some(function(ct) { return ct && ct.calibratedStart == null; });
+      if (needsCalibration) {
+        canvasCalibrationStarted = true;
+        function applyCalibrationResult() {
+          activeClip = resolveAdjustedClip();
+          updateTimeDisplay();
+          updateDebugStats();
+          if (activeClip) { seekAll(activeClip.start); scrubber.value = 0; }
+        }
+        if (restoreFromCache()) {
+          applyCalibrationResult();
+        } else {
+          calibrateFromCanvas().then(function(any) { if (any) applyCalibrationResult(); });
+        }
+      }
     }
   }
 

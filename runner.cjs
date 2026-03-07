@@ -31,13 +31,7 @@ const MEDAL_DISPLAY_MS = 500;           // How long to show the placement medal 
 const POST_RACE_WAIT_MS = 500;          // Pause after race finishes for final video frames
 const SLOWMO_MULTIPLIER = 20;           // Playwright slowMo factor per slowmo unit
 const PAGE_TIMEOUT_MS = 90000;          // Default page action/navigation timeout
-const FFMPEG_TIMEOUT_MS = 120000;       // Timeout for ffmpeg/ffprobe operations
-
-// Detect ffprobe availability at startup so we can skip calibration cues when it's absent
-const HAS_FFPROBE = (() => {
-  try { execFileSync('ffprobe', ['-version'], { stdio: 'pipe', timeout: 5000 }); return true; }
-  catch { return false; }
-})();
+const FFMPEG_TIMEOUT_MS = 120000;       // Timeout for ffmpeg operations
 
 // --- Constants (loaded from shared ESM module) ---
 
@@ -538,28 +532,30 @@ async function runMarkerMode(page, context, config, barriers, isParallel, shared
   const measurements = [];
   const activeMeasurements = {};
 
-  // --- Visual cues for frame-accurate video trimming ---
-  // Place a colored square in the top-left corner so ffprobe can detect cut points.
+  // --- Visual cues for frame-accurate trimming / calibration ---
+  // A colored square in the top-left corner is detected by the player (canvas API)
+  // for PTS calibration, and by ffprobe for physical video trimming (--ffmpeg).
   const CUE_COLOR_START = '#00FF00';
   const CUE_COLOR_END = '#FF0000';
-  const CUE_DURATION_MS = 300;
-  const CUE_CALIBRATION_MS = 120;
-  const CUE_SIZE = 30; // px — large enough for reliable detection
+  const CUE_DURATION_MS = 300;     // used for both ffmpeg trimming and canvas calibration
+  const CUE_SIZE = 30;
 
   const flashCue = async (color, durationMs) => {
     const dur = typeof durationMs === 'number' ? durationMs : CUE_DURATION_MS;
-    await page.evaluate(({ c, size }) => {
+    await page.evaluate(({ c, size, ms }) => {
       const el = document.createElement('div');
       el.id = '__race_cue';
-      el.style.cssText = 'position:fixed;top:0;left:0;width:' + size + 'px;height:' + size + 'px;z-index:2147483647;background:' + c;
+      // CSS animation forces compositor updates → guarantees screencast frame capture
+      el.style.cssText = 'position:fixed;top:0;left:0;width:' + size + 'px;height:' + size + 'px;z-index:2147483647;background:' + c + ';animation:__rcue 16ms steps(2) infinite';
+      var sheet = document.createElement('style');
+      sheet.textContent = '@keyframes __rcue{50%{opacity:.999}}';
+      document.head.appendChild(sheet);
       document.documentElement.appendChild(el);
       el.offsetHeight;
-    }, { c: color, size: CUE_SIZE });
-    await page.waitForTimeout(dur);
-    await page.evaluate(() => {
-      const el = document.getElementById('__race_cue');
-      if (el) el.remove();
-    });
+      return new Promise(resolve => setTimeout(() => {
+        el.remove(); sheet.remove(); resolve();
+      }, ms));
+    }, { c: color, size: CUE_SIZE, ms: dur });
   };
 
   // Track overlay state so it can be re-injected after page.goto() navigations
@@ -659,10 +655,7 @@ async function runMarkerMode(page, context, config, barriers, isParallel, shared
       if (result?.aborted) return;
     }
     currentSegmentStart = (Date.now() - recordingStartTime) / 1000;
-    if (config.ffmpeg || HAS_FFPROBE) {
-      const cueDur = config.ffmpeg ? CUE_DURATION_MS : CUE_CALIBRATION_MS;
-      await flashCue(CUE_COLOR_START, cueDur);
-    }
+    await flashCue(CUE_COLOR_START);
     await showRecordingIndicator();
   };
 
@@ -675,10 +668,7 @@ async function runMarkerMode(page, context, config, barriers, isParallel, shared
     stopPromise = (async () => {
       await hideRecordingIndicator();
       await showMedal();
-      if (config.ffmpeg || HAS_FFPROBE) {
-        const cueDur = config.ffmpeg ? CUE_DURATION_MS : CUE_CALIBRATION_MS;
-        await flashCue(CUE_COLOR_END, cueDur);
-      }
+      await flashCue(CUE_COLOR_END);
     })();
     return stopPromise;
   };
@@ -997,43 +987,6 @@ async function runBrowserRecording(config, barriers, isParallel, sharedState, op
     let fullVideoFile = null;
     const recordingSegments = markerSegments;
 
-    // Detect cue frames for PTS calibration (must run before ffmpeg trimming
-    // modifies the video file). Provides frame-accurate clip positions that
-    // bypass the inaccurate global wallClock→PTS linear scale.
-    let calibratedSegments = null;
-    const rawVideoFile = getMostRecentVideo(outputDir);
-    if (HAS_FFPROBE && rawVideoFile && recordingSegments.length > 0) {
-      try {
-        const rawVideoPath = path.join(outputDir, rawVideoFile);
-        const { startCues, endCues, frameDuration: fd } = detectCueFrames(rawVideoPath);
-        const dt = fd || 0.04;
-        if (startCues.length > 0 && endCues.length > 0) {
-          // Clip start: one frame before the first green cue (the frame captured
-          // at approximately the moment currentSegmentStart was set).
-          // Clip end: interpolate using the local PTS rate between the two cues.
-          const ptsStart = Math.max(0, startCues[0] - dt);
-          const cueSpanPts = endCues[0] - startCues[0];
-          const seg = recordingSegments[0];
-          const segDuration = seg.end - seg.start;
-          // Estimate wall-clock span between green and red cue flashes.
-          // Green cue fires right after currentSegmentStart; red cue fires
-          // after segment end + hideIndicator + medal display.
-          // We don't know the exact gap, but the local PTS rate within the
-          // active rendering region is approximately cueSpanPts / cueSpanWC.
-          // For the end, use: calibratedStart + segDuration (localRate ≈ 1.0
-          // during active rendering — verified empirically: timer advances
-          // at ~1:1 with PTS in the content region).
-          const ptsEnd = ptsStart + segDuration;
-          calibratedSegments = [{ start: ptsStart, end: ptsEnd }];
-          console.error(`[${id}] PTS calibration: ${ptsStart.toFixed(3)}s - ${ptsEnd.toFixed(3)}s (cues: green=${startCues[0].toFixed(3)}, red=${endCues[0].toFixed(3)}, dt=${dt})`);
-        } else {
-          console.error(`[${id}] PTS calibration: insufficient cues (green=${startCues.length}, red=${endCues.length})`);
-        }
-      } catch (e) {
-        console.error(`[${id}] PTS calibration failed: ${e.message}`);
-      }
-    }
-
     if (markerSegments.length > 0 && ffmpeg) {
       fullVideoFile = trimVideoWithFfmpeg(outputDir, markerSegments, id);
     } else if (markerSegments.length > 0) {
@@ -1054,7 +1007,6 @@ async function runBrowserRecording(config, barriers, isParallel, sharedState, op
       measurements,
       profileMetrics,
       recordingSegments: recordingSegments.length > 0 ? recordingSegments : null,
-      calibratedSegments,
       recordingOffset,
       wallClockDuration,
       error: null
@@ -1164,7 +1116,6 @@ async function main() {
       measurements: r.measurements || [],
       profileMetrics: r.profileMetrics || null,
       recordingSegments: r.recordingSegments || null,
-      calibratedSegments: r.calibratedSegments || null,
       recordingOffset: r.recordingOffset || 0,
       wallClockDuration: r.wallClockDuration || 0,
       error: r.error || null
