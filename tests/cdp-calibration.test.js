@@ -83,36 +83,48 @@ describe('interpolateCdpTimestamp', () => {
 });
 
 describe('wallClockToPts (via createCdpCalibrator mock)', () => {
-  // Simulates the PTS computation that createCdpCalibrator.wallClockToPts performs:
-  // pts = interpolatedCdpTs - firstCdpTs
-  function computePts(mapping, wallMs) {
+  // Simulates the computation: interpolate(eventWallMs) - interpolate(ptsZeroWallMs)
+  function computePts(mapping, wallMs, ptsZeroWallMs) {
     if (mapping.length < 2) return null;
-    const firstCdpTs = mapping[0].cdpTs;
     const cdpTs = interpolateCdpTimestamp(mapping, wallMs);
-    if (cdpTs === null) return null;
-    return cdpTs - firstCdpTs;
+    const refCdpTs = interpolateCdpTimestamp(mapping, ptsZeroWallMs);
+    if (cdpTs === null || refCdpTs === null) return null;
+    return cdpTs - refCdpTs;
   }
 
-  it('returns 0 PTS when wallMs matches the first sample', () => {
+  it('returns 0 PTS when event matches the reference', () => {
     const mapping = [
       { cdpTs: 1000.0, wallMs: 5000 },
       { cdpTs: 1001.0, wallMs: 6000 },
     ];
-    expect(computePts(mapping, 5000)).toBeCloseTo(0.0, 6);
+    expect(computePts(mapping, 5000, 5000)).toBeCloseTo(0.0, 6);
   });
 
-  it('returns positive PTS for events after recording start', () => {
+  it('returns positive PTS for events after PTS=0 reference', () => {
     const mapping = [
       { cdpTs: 1000.0, wallMs: 5000 },
       { cdpTs: 1001.0, wallMs: 6000 },
       { cdpTs: 1002.0, wallMs: 7000 },
     ];
-    // Event at wallMs=6500 → cdpTs=1001.5 → PTS = 1001.5-1000.0 = 1.5s
-    expect(computePts(mapping, 6500)).toBeCloseTo(1.5, 6);
+    // ptsZero at 5000, event at 6500 → PTS = 1001.5-1000.0 = 1.5s
+    expect(computePts(mapping, 6500, 5000)).toBeCloseTo(1.5, 6);
+  });
+
+  it('works when ptsZero is before all mapping samples (extrapolation)', () => {
+    const mapping = [
+      { cdpTs: 1000.0, wallMs: 5000 },
+      { cdpTs: 1001.0, wallMs: 6000 },
+      { cdpTs: 1002.0, wallMs: 7000 },
+    ];
+    // ptsZero at 4000 (before mapping), event at 6000
+    // ref cdpTs = 1000.0 + (4000-5000)/1000 = 999.0
+    // event cdpTs = 1001.0
+    // PTS = 1001.0 - 999.0 = 2.0
+    expect(computePts(mapping, 6000, 4000)).toBeCloseTo(2.0, 6);
   });
 
   it('returns null when fewer than 2 samples', () => {
     const mapping = [{ cdpTs: 100.0, wallMs: 5000 }];
-    expect(computePts(mapping, 5500)).toBeNull();
+    expect(computePts(mapping, 5500, 5000)).toBeNull();
   });
 });

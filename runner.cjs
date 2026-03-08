@@ -973,6 +973,7 @@ async function runBrowserRecording(config, barriers, isParallel, sharedState, op
     activeContexts.push(context);
 
     const page = await context.newPage();
+    const newPageWallMs = Date.now();
     page.setDefaultTimeout(PAGE_TIMEOUT_MS);
     page.setDefaultNavigationTimeout(PAGE_TIMEOUT_MS);
 
@@ -1020,7 +1021,7 @@ async function runBrowserRecording(config, barriers, isParallel, sharedState, op
     let calibratedStart = null;
     const cdpStart = result?.cdpStartWallMs;
     if (cdpStart != null && cdpCalibrator.hasData) {
-      calibratedStart = cdpCalibrator.wallClockToPts(cdpStart);
+      calibratedStart = cdpCalibrator.wallClockToPts(cdpStart, newPageWallMs);
       if (calibratedStart != null) {
         console.error(`[${id}] CDP calibrated start PTS: ${calibratedStart.toFixed(3)}s (${cdpCalibrator.sampleCount} samples)`);
       }
