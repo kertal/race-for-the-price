@@ -46,13 +46,13 @@ function getVideoDuration(videoPath) {
 
 /**
  * Detect green and red cue frame PTS timestamps by analyzing
- * the 30x30 top-left crop of the video via ffprobe + signalstats.
+ * the 4x4 top-left crop of the video via ffprobe + signalstats.
  */
 function detectCues(videoPath) {
   const escaped = videoPath.replace(/\\/g, '/').replace(/[';,\[\]=\\ ]/g, ch => '%' + ch.charCodeAt(0).toString(16).padStart(2, '0'));
   const result = execFileSync('ffprobe', [
     '-f', 'lavfi',
-    '-i', `movie=${escaped},crop=30:30:0:0,signalstats`,
+    '-i', `movie=${escaped},crop=4:4:0:0,signalstats`,
     '-show_entries', 'frame=pts_time:frame_tags=lavfi.signalstats.HUEAVG,lavfi.signalstats.SATAVG,lavfi.signalstats.YAVG',
     '-of', 'csv=p=0',
     '-v', 'quiet',
@@ -103,7 +103,8 @@ describe('trim-accuracy integration', () => {
 
     expect(proc.status).toBe(0);
 
-    const stripped = proc.stderr.replace(/\x1b\[[0-9;]*m/g, '');
+    const ansiRe = new RegExp('\\u001B\\[[0-9;]*m', 'g');
+    const stripped = proc.stderr.replace(ansiRe, '');
     const match = stripped.match(/📂\s+(.+)/);
     expect(match).not.toBeNull();
     resultsDir = path.resolve(projectRoot, match[1].trim());

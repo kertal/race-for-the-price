@@ -46,6 +46,9 @@ async function createCdpCalibrator(page) {
     });
   } catch (e) {
     console.error(`[cdp-calibration] Failed to start screencast: ${e.message}`);
+    if (session) {
+      try { await session.detach(); } catch (_) {}
+    }
     return createNullCalibrator();
   }
 
@@ -56,10 +59,8 @@ async function createCdpCalibrator(page) {
     async stop() {
       if (stopped) return;
       stopped = true;
-      try {
-        await session.send('Page.stopScreencast');
-        await session.detach();
-      } catch (_) {}
+      try { await session.send('Page.stopScreencast'); } catch (_) {}
+      try { await session.detach(); } catch (_) {}
     },
 
     /**

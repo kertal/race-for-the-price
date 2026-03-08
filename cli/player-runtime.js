@@ -314,7 +314,12 @@ function onTimeUpdate() {
     const v = videos[i];
     if (!v) continue;
     const vidClip = activeClip && ct && isValidClipEntry(ct[i]) ? ct[i] : null;
-    const e = vidClip ? (v.currentTime - vidClip.start) : (v.currentTime - clipOffset());
+    if (vidClip && v.currentTime > vidClip.end) {
+      v.currentTime = vidClip.end;
+      v.pause();
+    }
+    const clamped = vidClip ? Math.min(v.currentTime, vidClip.end) : v.currentTime;
+    const e = vidClip ? (clamped - vidClip.start) : (clamped - clipOffset());
     if (e > elapsed) elapsed = e;
   }
   if (activeClip && elapsed >= clipDuration()) {
@@ -346,11 +351,13 @@ function onEnded() {
 function detachVideoListeners() {
   raceVideos.forEach(v => {
     if (v) {
+      v.removeEventListener('loadedmetadata', onMeta);
       v.removeEventListener('timeupdate', onTimeUpdate);
       v.removeEventListener('ended', onEnded);
     }
   });
   if (mergedVideo) {
+    mergedVideo.removeEventListener('loadedmetadata', onMeta);
     mergedVideo.removeEventListener('timeupdate', onTimeUpdate);
     mergedVideo.removeEventListener('ended', onEnded);
   }
@@ -490,7 +497,11 @@ function switchToDebug() {
 }
 
 // --- Debug panel: video stats ---
-// Uses innerHTML to rebuild debug rows — safe (no user-supplied content reaches these)
+// Uses innerHTML to rebuild debug rows. Measurement names are escaped to prevent XSS.
+
+function escLabel(str) {
+  return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
 
 function updateDebugStats() {
   const statsEl = document.getElementById('debugStats');
@@ -555,8 +566,8 @@ function updateDebugStats() {
     const measurements = ct.measurements || [];
     for (let m = 0; m < measurements.length; m++) {
       const meas = measurements[m];
-      if (meas.startTime != null) events.push({ label: 'raceStart("' + (meas.name || '') + '")', wc: meas.startTime, ptsVal: toPts(meas.startTime) });
-      if (meas.endTime != null) events.push({ label: 'raceEnd("' + (meas.name || '') + '")', wc: meas.endTime, ptsVal: toPts(meas.endTime) });
+      if (meas.startTime != null) events.push({ label: 'raceStart("' + escLabel(meas.name || '') + '")', wc: meas.startTime, ptsVal: toPts(meas.startTime) });
+      if (meas.endTime != null) events.push({ label: 'raceEnd("' + escLabel(meas.name || '') + '")', wc: meas.endTime, ptsVal: toPts(meas.endTime) });
     }
     events.push({ label: 'raceRecordingEnd()', wc: wcEnd, ptsVal: ct.end });
     events.push({ label: 'Pre-close', wc: wcd > 0 ? wcd - offset : null, ptsVal: v.duration });
@@ -725,8 +736,9 @@ playBtn.addEventListener('click', () => {
     videos.forEach(v => v?.pause());
     playBtn.textContent = '\u25B6';
   } else {
-    if (activeClip && primary.currentTime >= activeClip.end - STEP) {
+    if (activeClip && Number(scrubber.value) >= 999) {
       seekAll(activeClip.start);
+      scrubber.value = 0;
     }
     videos.forEach(v => v?.play());
     playBtn.textContent = '\u23F8';
