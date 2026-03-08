@@ -468,6 +468,52 @@ describe('buildPlayerHtml clipTimes', () => {
     expect(html).toContain('FRAME_DT * 4');
     expect(html).toContain('FRAME_DT = 0.04');
   });
+
+  it('applies build-time calibratedStart directly, skipping linear scaling', () => {
+    const clips = [
+      { start: 1, end: 3, recordingOffset: 0.1, wallClockDuration: 5, calibratedStart: 2.56 },
+      { start: 1, end: 3, recordingOffset: 0.1, wallClockDuration: 5, calibratedStart: 3.12 },
+    ];
+    const html = withClips(clips);
+    expect(html).toContain('"calibratedStart":2.56');
+    expect(html).toContain('"calibratedStart":3.12');
+    expect(html).toContain('ct.calibratedStart != null');
+    expect(html).toContain('applyCalibrationToClip(ct, ct.calibratedStart');
+  });
+
+  it('falls through to linear scaling when calibratedStart is null', () => {
+    const clips = [
+      { start: 1, end: 3, recordingOffset: 0.1, wallClockDuration: 5, calibratedStart: null },
+      { start: 1, end: 3, recordingOffset: 0.1, wallClockDuration: 5, calibratedStart: null },
+    ];
+    const html = withClips(clips);
+    expect(html).toContain('"calibratedStart":null');
+    // Linear scaling path should still exist
+    expect(html).toContain('ct._ptsScale = scale');
+  });
+
+  it('re-throws SecurityError from detectGreenCuePts for blob fallback', () => {
+    const clips = [
+      { start: 1, end: 3, recordingOffset: 0.1, wallClockDuration: 5 },
+      { start: 1, end: 3, recordingOffset: 0.1, wallClockDuration: 5 },
+    ];
+    const html = withClips(clips);
+    expect(html).toContain("e.name === 'SecurityError'");
+    expect(html).toContain("e.message.indexOf('tainted')");
+    expect(html).toContain('throw e');
+  });
+
+  it('includes toBlobVideo fallback for file:// canvas tainting', () => {
+    const clips = [
+      { start: 1, end: 3, recordingOffset: 0.1, wallClockDuration: 5 },
+      { start: 1, end: 3, recordingOffset: 0.1, wallClockDuration: 5 },
+    ];
+    const html = withClips(clips);
+    expect(html).toContain('toBlobVideo');
+    expect(html).toContain('XMLHttpRequest');
+    expect(html).toContain('createObjectURL');
+    expect(html).toContain('scanWithBlob');
+  });
 });
 
 // --- Files section ---
