@@ -87,6 +87,7 @@ export function buildPlayerHtml(summary, videoFiles, altFormat, altFiles, option
 
   let playerSection = '';
   let scriptTag = '';
+  let debugPanelOut = '';
 
   if (hasVideos) {
     const videoElements = placementOrder.map((origIdx, displayIdx) => {
@@ -103,8 +104,8 @@ export function buildPlayerHtml(summary, videoFiles, altFormat, altFiles, option
   <video id="mergedVideo" src="${escHtml(mergedVideoFile)}" preload="auto" muted></video>
 </div>` : '';
 
-    const debugPanelHtml = hasClipTimes ? buildDebugPanelHtml(racers, placementOrder, clipTimes) : '';
-    playerSection = buildPlayerSectionHtml(videoElements, mergedVideoElement, debugPanelHtml);
+    debugPanelOut = hasClipTimes ? buildDebugPanelHtml(racers, placementOrder, clipTimes) : '';
+    playerSection = buildPlayerSectionHtml(videoElements, mergedVideoElement);
 
     const videoIds = placementOrder.map((_, i) => `v${i}`);
     const orderedVideoFiles = placementOrder.map(i => videoFiles[i]);
@@ -131,7 +132,7 @@ export function buildPlayerHtml(summary, videoFiles, altFormat, altFiles, option
   const hasToggle = hasFullVideos || hasClipTimes || hasMergedVideo;
   const fullBtn = (hasFullVideos || hasClipTimes) ? '<button class="mode-btn" id="modeFull" title="Full recordings">Full</button>' : '';
   const mergedBtn = hasMergedVideo ? '<button class="mode-btn" id="modeMerged" title="Side-by-side merged video">Merged</button>' : '';
-  const debugBtn = hasClipTimes ? '<button class="mode-btn" id="modeDebug" title="Debug clip start calibration">Debug</button>' : '';
+  const debugBtn = hasClipTimes ? '<button class="mode-btn" id="modeDebug" title="Calibrate clip start times">Calibration</button>' : '';
   const modeToggle = hasToggle ? `
   <div class="mode-toggle">
     <button class="mode-btn active" id="modeRace" title="Race segments only">Race</button>
@@ -151,6 +152,7 @@ export function buildPlayerHtml(summary, videoFiles, altFormat, altFiles, option
     errors: buildErrorsHtml(summary.errors),
     modeToggle,
     playerSection,
+    debugPanel: debugPanelOut,
     results: buildResultsHtml(summary.comparisons || [], racers, summary.clickCounts),
     profile: buildProfileHtml(summary.profileComparison || null, racers),
     files: buildFilesHtml(racers, videoFiles, {

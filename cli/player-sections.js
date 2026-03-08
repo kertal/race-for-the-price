@@ -292,10 +292,9 @@ export function buildDebugPanelHtml(racers, placementOrder, clipTimes) {
   return render(T['debug-panel'], { debugRows, statsRows, frameRows, timingRows });
 }
 
-export function buildPlayerSectionHtml(videoElements, mergedVideoElement, debugPanelHtml) {
+export function buildPlayerSectionHtml(videoElements, mergedVideoElement) {
   return render(T['player-section'], {
     videoElements,
     mergedVideoElement: mergedVideoElement || '',
-    debugPanel: debugPanelHtml || '',
   });
 }

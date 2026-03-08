@@ -627,6 +627,8 @@
 
 {{playerSection}}
 
+{{debugPanel}}
+
 <details class="section" open>
   <summary><h2>Results</h2></summary>
   <div class="section-body">
@@ -677,7 +679,6 @@
 {{videoElements}}
 </div>
 {{mergedVideoElement}}
-{{debugPanel}}
 
 <div class="controls">
   <div class="controls-row">
@@ -736,7 +737,7 @@
 
 <template id="build-debug-panel">
 <div class="debug-panel" id="debugPanel">
-  <h3>DEBUG: Clip Start Calibration</h3>{{debugRows}}
+  <h3>Calibration</h3>{{debugRows}}
   <div class="debug-stats" id="debugStats">
     <div class="debug-stats-header">VIDEO INFO</div>
 {{statsRows}}
