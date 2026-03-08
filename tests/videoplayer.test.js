@@ -624,9 +624,9 @@ describe('buildPlayerHtml debug mode', () => {
     expect(debugHtml).toContain('clipFrame');
     expect(debugHtml).toContain('clipStartFrame');
     expect(debugHtml).toContain('clipEndFrame');
-    expect(debugHtml).toContain('>clip: ');
-    expect(debugHtml).toContain('>full: ');
-    expect(debugHtml).toContain('>range: ');
+    expect(debugHtml).toContain("'clip: '");
+    expect(debugHtml).toContain("'full: '");
+    expect(debugHtml).toContain("'range: '");
   });
 });
 
@@ -675,10 +675,10 @@ describe('buildPlayerHtml timing events', () => {
     expect(timingHtml).toContain('raceRecordingEnd()');
     expect(timingHtml).toContain('Pre-close');
     expect(timingHtml).toContain('Video time scale');
-    // Column headers
-    expect(timingHtml).toContain('<b>Wall-clock</b>');
-    expect(timingHtml).toContain('<b>Video time</b>');
-    expect(timingHtml).toContain('<b>Frame</b>');
+    expect(timingHtml).toContain("'Event'");
+    expect(timingHtml).toContain("'Wall-clock'");
+    expect(timingHtml).toContain("'Video time'");
+    expect(timingHtml).toContain("'Frame'");
   });
 
   it('script includes frame number computation', () => {

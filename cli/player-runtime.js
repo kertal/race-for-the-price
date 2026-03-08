@@ -497,10 +497,18 @@ function switchToDebug() {
 }
 
 // --- Debug panel: video stats ---
-// Uses innerHTML to rebuild debug rows. Measurement names are escaped to prevent XSS.
 
-function escLabel(str) {
-  return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+function clearRowKeepName(row) {
+  const nameSpan = row.querySelector('.racer-name');
+  const saved = nameSpan ? nameSpan.cloneNode(true) : null;
+  row.textContent = '';
+  if (saved) row.appendChild(saved);
+}
+
+function appendSpan(parent, text) {
+  const s = document.createElement('span');
+  s.textContent = text;
+  parent.appendChild(s);
 }
 
 function updateDebugStats() {
@@ -526,12 +534,10 @@ function updateDebugStats() {
     if (activeCt) {
       clipDur = ' (clip: ' + (activeCt.end - activeCt.start).toFixed(2) + 's)';
     }
-    const nameSpan = row.querySelector('.racer-name');
-    const nameHtml = nameSpan ? nameSpan.outerHTML : '';
-    row.innerHTML = nameHtml +
-      '<span>duration: ' + dur + clipDur + '</span>' +
-      '<span>frames: ' + framesText + ' dropped: ' + droppedText + '</span>' +
-      '<span>resolution: ' + res + '</span>';
+    clearRowKeepName(row);
+    appendSpan(row, 'duration: ' + dur + clipDur);
+    appendSpan(row, 'frames: ' + framesText + ' dropped: ' + droppedText);
+    appendSpan(row, 'resolution: ' + res);
   }
   // TIMING EVENTS
   for (let i = 0; i < raceVideos.length; i++) {
@@ -539,7 +545,14 @@ function updateDebugStats() {
     if (!eventsEl) continue;
     const v = raceVideos[i];
     const ct = clipTimes ? clipTimes[i] : null;
-    if (!ct || !v || !v.duration) { eventsEl.innerHTML = '<span style="color:#777">No timing data</span>'; continue; }
+    if (!ct || !v || !v.duration) {
+      eventsEl.replaceChildren();
+      const noData = document.createElement('span');
+      noData.style.color = '#777';
+      noData.textContent = 'No timing data';
+      eventsEl.appendChild(noData);
+      continue;
+    }
     const offset = ct.recordingOffset || 0;
     const wcd = ct.wallClockDuration || 0;
     const scale = ct._ptsScale || (wcd > 0 ? v.duration / wcd : 0);
@@ -566,20 +579,46 @@ function updateDebugStats() {
     const measurements = ct.measurements || [];
     for (let m = 0; m < measurements.length; m++) {
       const meas = measurements[m];
-      if (meas.startTime != null) events.push({ label: 'raceStart("' + escLabel(meas.name || '') + '")', wc: meas.startTime, ptsVal: toPts(meas.startTime) });
-      if (meas.endTime != null) events.push({ label: 'raceEnd("' + escLabel(meas.name || '') + '")', wc: meas.endTime, ptsVal: toPts(meas.endTime) });
+      if (meas.startTime != null) events.push({ label: 'raceStart("' + (meas.name || '') + '")', wc: meas.startTime, ptsVal: toPts(meas.startTime) });
+      if (meas.endTime != null) events.push({ label: 'raceEnd("' + (meas.name || '') + '")', wc: meas.endTime, ptsVal: toPts(meas.endTime) });
     }
     events.push({ label: 'raceRecordingEnd()', wc: wcEnd, ptsVal: ct.end });
     events.push({ label: 'Pre-close', wc: wcd > 0 ? wcd - offset : null, ptsVal: v.duration });
-    let html = '';
-    for (const ev of events) {
-      html += '<div class="debug-timing-event"><span class="debug-timing-label">' + ev.label + '</span><span class="debug-timing-val">' + fmtS(ev.wc) + '</span><span class="debug-timing-val">' + fmtS(ev.ptsVal) + '</span><span class="debug-timing-val">' + fmtF(ev.ptsVal) + '</span></div>';
-    }
     const scaleInfo = ct.calibratedStart != null
       ? 'calibrated'
       : (scale > 0 ? scale.toFixed(4) : '\u2014');
-    html += '<div class="debug-timing-event"><span class="debug-timing-label"><b>Video time scale</b></span><span class="debug-timing-val">' + scaleInfo + '</span><span class="debug-timing-val">vid/wc</span><span class="debug-timing-val">\u2014</span></div>';
-    eventsEl.innerHTML = '<div class="debug-timing-event"><span class="debug-timing-label"><b>Event</b></span><span class="debug-timing-val"><b>Wall-clock</b></span><span class="debug-timing-val"><b>Video time</b></span><span class="debug-timing-val"><b>Frame</b></span></div>' + html;
+    events.push({ label: 'Video time scale', wc: scaleInfo, ptsVal: 'vid/wc', frame: '\u2014', bold: true });
+
+    function buildTimingRow(ev, bold) {
+      const div = document.createElement('div');
+      div.className = 'debug-timing-event';
+      const cols = [
+        ev.label,
+        typeof ev.wc === 'string' ? ev.wc : fmtS(ev.wc),
+        typeof ev.ptsVal === 'string' ? ev.ptsVal : fmtS(ev.ptsVal),
+        ev.frame != null ? ev.frame : fmtF(ev.ptsVal),
+      ];
+      const classes = ['debug-timing-label', 'debug-timing-val', 'debug-timing-val', 'debug-timing-val'];
+      for (let c = 0; c < cols.length; c++) {
+        const span = document.createElement('span');
+        span.className = classes[c];
+        if (bold || ev.bold) {
+          const b = document.createElement('b');
+          b.textContent = cols[c];
+          span.appendChild(b);
+        } else {
+          span.textContent = cols[c];
+        }
+        div.appendChild(span);
+      }
+      return div;
+    }
+
+    eventsEl.replaceChildren();
+    eventsEl.appendChild(buildTimingRow({ label: 'Event', wc: 'Wall-clock', ptsVal: 'Video time', frame: 'Frame' }, true));
+    for (const ev of events) {
+      eventsEl.appendChild(buildTimingRow(ev, false));
+    }
   }
 }
 
@@ -597,9 +636,8 @@ function updateFramePositions() {
     if (typeof v.getVideoPlaybackQuality === 'function') {
       totalFrames = v.getVideoPlaybackQuality().totalVideoFrames;
     }
-    const nameSpan = row.querySelector('.racer-name');
-    const nameHtml = nameSpan ? nameSpan.outerHTML : '';
-    if (totalFrames <= 0) { row.innerHTML = nameHtml + '<span>\u2014</span>'; continue; }
+    clearRowKeepName(row);
+    if (totalFrames <= 0) { appendSpan(row, '\u2014'); continue; }
     const fullFrame = Math.round(v.currentTime / v.duration * totalFrames);
     const clip = ct ? ct[i] : null;
     if (clip && isValidClipEntry(clip)) {
@@ -607,13 +645,11 @@ function updateFramePositions() {
       const clipEndFrame = Math.round(clip.end / v.duration * totalFrames);
       const clipFrame = fullFrame - clipStartFrame;
       const clipTotal = clipEndFrame - clipStartFrame;
-      row.innerHTML = nameHtml +
-        '<span>clip: ' + clipFrame + ' / ' + clipTotal + '</span>' +
-        '<span>full: ' + fullFrame + ' / ' + totalFrames + '</span>' +
-        '<span>range: ' + clipStartFrame + '\u2013' + clipEndFrame + '</span>';
+      appendSpan(row, 'clip: ' + clipFrame + ' / ' + clipTotal);
+      appendSpan(row, 'full: ' + fullFrame + ' / ' + totalFrames);
+      appendSpan(row, 'range: ' + clipStartFrame + '\u2013' + clipEndFrame);
     } else {
-      row.innerHTML = nameHtml +
-        '<span>full: ' + fullFrame + ' / ' + totalFrames + '</span>';
+      appendSpan(row, 'full: ' + fullFrame + ' / ' + totalFrames);
     }
   }
 }

@@ -31,6 +31,21 @@ const makeSummary = (overrides = {}) => ({
 
 const videoFiles = ['alpha/alpha.race.webm', 'bravo/bravo.race.webm'];
 
+const calibratedClipTimes = [
+  { start: 2.0, end: 10.0, recordingOffset: 0.01, wallClockDuration: 12.0, calibratedStart: 3.52 },
+  { start: 1.8, end: 9.5, recordingOffset: 0.02, wallClockDuration: 11.5, calibratedStart: 2.0 },
+];
+
+const uncalibratedClipTimes = [
+  { start: 2.0, end: 10.0, recordingOffset: 0.01, wallClockDuration: 12.0, calibratedStart: null },
+  { start: 1.8, end: 9.5, recordingOffset: 0.02, wallClockDuration: 11.5, calibratedStart: null },
+];
+
+const baseClipTimes = [
+  { start: 2.0, end: 10.0, recordingOffset: 0.01, wallClockDuration: 12.0 },
+  { start: 1.8, end: 9.5, recordingOffset: 0.02, wallClockDuration: 11.5 },
+];
+
 let browser, page, tmpDir;
 
 async function launchPlaywright() {
@@ -38,11 +53,17 @@ async function launchPlaywright() {
   return pw.chromium.launch({ headless: true });
 }
 
-function writeHtml(html) {
+function buildAndWrite(clipTimes) {
   for (const vf of videoFiles) {
     fs.mkdirSync(path.join(tmpDir, path.dirname(vf)), { recursive: true });
   }
+  const html = buildPlayerHtml(makeSummary(), videoFiles, null, null, { clipTimes });
   fs.writeFileSync(path.join(tmpDir, 'index.html'), html);
+  return html;
+}
+
+function extractFromScripts(fn) {
+  return page.evaluate(fn);
 }
 
 describe('calibration integration', () => {
@@ -68,18 +89,11 @@ describe('calibration integration', () => {
   it('embeds build-time calibratedStart in clipTimes JSON', async () => {
     if (!page) return;
 
-    const clipTimes = [
-      { start: 2.0, end: 10.0, recordingOffset: 0.01, wallClockDuration: 12.0, calibratedStart: 3.52 },
-      { start: 1.8, end: 9.5, recordingOffset: 0.02, wallClockDuration: 11.5, calibratedStart: 2.0 },
-    ];
-    const html = buildPlayerHtml(makeSummary(), videoFiles, null, null, { clipTimes });
-    writeHtml(html);
-
+    buildAndWrite(calibratedClipTimes);
     await page.goto(`file://${path.join(tmpDir, 'index.html')}`);
 
-    const parsed = await page.evaluate(() => {
-      const scripts = document.querySelectorAll('script');
-      for (const s of scripts) {
+    const parsed = await extractFromScripts(() => {
+      for (const s of document.querySelectorAll('script')) {
         const match = s.textContent.match(/const clipTimes = (\[.*?\]);/);
         if (match) return JSON.parse(match[1]);
       }
@@ -94,27 +108,17 @@ describe('calibration integration', () => {
   it('onMeta applies calibratedStart via applyCalibrationToClip, not linear scaling', async () => {
     if (!page) return;
 
-    const clipTimes = [
-      { start: 2.0, end: 10.0, recordingOffset: 0.01, wallClockDuration: 12.0, calibratedStart: 3.52 },
-      { start: 1.8, end: 9.5, recordingOffset: 0.02, wallClockDuration: 11.5, calibratedStart: 2.0 },
-    ];
-    const html = buildPlayerHtml(makeSummary(), videoFiles, null, null, { clipTimes });
-    writeHtml(html);
-
+    buildAndWrite(calibratedClipTimes);
     await page.goto(`file://${path.join(tmpDir, 'index.html')}`);
 
-    // Verify the onMeta code path: when calibratedStart is set, the player
-    // should call applyCalibrationToClip which sets ct.start = calibratedStart
-    // and ct.end = calibratedStart + (wcEnd - wcStart).
-    const result = await page.evaluate(() => {
-      const scripts = document.querySelectorAll('script');
-      for (const s of scripts) {
+    const result = await extractFromScripts(() => {
+      for (const s of document.querySelectorAll('script')) {
         if (s.textContent.includes('applyCalibrationToClip')) {
-          // Verify the build-time calibration branch exists
-          const hasBuildTimePath = s.textContent.includes('ct.calibratedStart != null');
-          const hasApplyCall = s.textContent.includes('applyCalibrationToClip(ct, ct.calibratedStart');
-          const hasContinue = s.textContent.includes('continue;');
-          return { hasBuildTimePath, hasApplyCall, hasContinue };
+          return {
+            hasBuildTimePath: s.textContent.includes('ct.calibratedStart != null'),
+            hasApplyCall: s.textContent.includes('applyCalibrationToClip(ct, ct.calibratedStart'),
+            hasContinue: s.textContent.includes('continue;'),
+          };
         }
       }
       return null;
@@ -129,23 +133,13 @@ describe('calibration integration', () => {
   it('skips canvas calibration when all clips have build-time calibratedStart', async () => {
     if (!page) return;
 
-    const clipTimes = [
-      { start: 2.0, end: 10.0, recordingOffset: 0.01, wallClockDuration: 12.0, calibratedStart: 3.52 },
-      { start: 1.8, end: 9.5, recordingOffset: 0.02, wallClockDuration: 11.5, calibratedStart: 2.0 },
-    ];
-    const html = buildPlayerHtml(makeSummary(), videoFiles, null, null, { clipTimes });
-    writeHtml(html);
-
+    buildAndWrite(calibratedClipTimes);
     await page.goto(`file://${path.join(tmpDir, 'index.html')}`);
 
-    // Verify needsCalibration check: when all calibratedStart are non-null,
-    // canvas calibration should not be triggered
-    const result = await page.evaluate(() => {
-      const scripts = document.querySelectorAll('script');
-      for (const s of scripts) {
+    const result = await extractFromScripts(() => {
+      for (const s of document.querySelectorAll('script')) {
         if (s.textContent.includes('needsCalibration')) {
-          const hasCheck = s.textContent.includes("clipTimes.some(ct => ct && ct.calibratedStart == null)");
-          return { hasCheck };
+          return { hasCheck: s.textContent.includes("clipTimes.some(ct => ct && ct.calibratedStart == null)") };
         }
       }
       return null;
@@ -158,18 +152,11 @@ describe('calibration integration', () => {
   it('falls back to canvas calibration when calibratedStart is null', async () => {
     if (!page) return;
 
-    const clipTimes = [
-      { start: 2.0, end: 10.0, recordingOffset: 0.01, wallClockDuration: 12.0, calibratedStart: null },
-      { start: 1.8, end: 9.5, recordingOffset: 0.02, wallClockDuration: 11.5, calibratedStart: null },
-    ];
-    const html = buildPlayerHtml(makeSummary(), videoFiles, null, null, { clipTimes });
-    writeHtml(html);
-
+    buildAndWrite(uncalibratedClipTimes);
     await page.goto(`file://${path.join(tmpDir, 'index.html')}`);
 
-    const parsed = await page.evaluate(() => {
-      const scripts = document.querySelectorAll('script');
-      for (const s of scripts) {
+    const parsed = await extractFromScripts(() => {
+      for (const s of document.querySelectorAll('script')) {
         const match = s.textContent.match(/const clipTimes = (\[.*?\]);/);
         if (match) return JSON.parse(match[1]);
       }
@@ -184,18 +171,11 @@ describe('calibration integration', () => {
   it('includes SecurityError re-throw for blob fallback on file://', async () => {
     if (!page) return;
 
-    const clipTimes = [
-      { start: 2.0, end: 10.0, recordingOffset: 0.01, wallClockDuration: 12.0 },
-      { start: 1.8, end: 9.5, recordingOffset: 0.02, wallClockDuration: 11.5 },
-    ];
-    const html = buildPlayerHtml(makeSummary(), videoFiles, null, null, { clipTimes });
-    writeHtml(html);
-
+    buildAndWrite(baseClipTimes);
     await page.goto(`file://${path.join(tmpDir, 'index.html')}`);
 
-    const result = await page.evaluate(() => {
-      const scripts = document.querySelectorAll('script');
-      for (const s of scripts) {
+    const result = await extractFromScripts(() => {
+      for (const s of document.querySelectorAll('script')) {
         if (s.textContent.includes('toBlobVideo')) {
           return {
             hasSecurityCheck: s.textContent.includes("e.name === 'SecurityError'"),
@@ -224,34 +204,19 @@ describe('calibration integration', () => {
   it('applyCalibrationToClip computes correct clip range from PTS start', async () => {
     if (!page) return;
 
-    const clipTimes = [
-      { start: 2.0, end: 10.0, recordingOffset: 0.01, wallClockDuration: 12.0, calibratedStart: 3.52 },
-      { start: 1.8, end: 9.5, recordingOffset: 0.02, wallClockDuration: 11.5, calibratedStart: 2.0 },
-    ];
-    const html = buildPlayerHtml(makeSummary(), videoFiles, null, null, { clipTimes });
-    writeHtml(html);
-
+    buildAndWrite(calibratedClipTimes);
     await page.goto(`file://${path.join(tmpDir, 'index.html')}`);
 
-    // Simulate what applyCalibrationToClip does:
-    // segDuration = _wcEnd - _wcStart (original wall-clock times)
-    // ct.start = ptsStart, ct.end = min(ptsStart + segDuration, videoDuration)
-    const result = await page.evaluate(() => {
-      // Extract clip data
-      const scripts = document.querySelectorAll('script');
-      for (const s of scripts) {
+    const result = await extractFromScripts(() => {
+      for (const s of document.querySelectorAll('script')) {
         const match = s.textContent.match(/const clipTimes = (\[.*?\]);/);
         if (match) {
-          const clips = JSON.parse(match[1]);
-          return clips.map(ct => {
-            const wcStart = ct.start;
-            const wcEnd = ct.end;
-            const segDuration = wcEnd - wcStart;
-            const ptsStart = ct.calibratedStart;
+          return JSON.parse(match[1]).map(ct => {
+            const segDuration = ct.end - ct.start;
             return {
-              wcStart, wcEnd, segDuration,
-              expectedStart: ptsStart,
-              expectedEnd: ptsStart + segDuration,
+              wcStart: ct.start, wcEnd: ct.end, segDuration,
+              expectedStart: ct.calibratedStart,
+              expectedEnd: ct.calibratedStart + segDuration,
             };
           });
         }

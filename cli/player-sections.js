@@ -244,14 +244,19 @@ export function buildFilesHtml(racers, videoFiles, options) {
 
 export function buildDebugPanelHtml(racers, placementOrder, clipTimes) {
   const orderedClipTimes = placementOrder.map(i => clipTimes[i] || null);
+
+  function racerNameSpan(origIdx) {
+    const color = RACER_CSS_COLORS[origIdx % RACER_CSS_COLORS.length];
+    return `<span class="racer-name" style="color: ${color}">${escHtml(racers[origIdx])}</span>`;
+  }
+
   let rows = '';
   placementOrder.forEach((origIdx, displayIdx) => {
-    const color = RACER_CSS_COLORS[origIdx % RACER_CSS_COLORS.length];
     const clip = orderedClipTimes[displayIdx];
     const startVal = clip && Number.isFinite(clip.start) ? clip.start.toFixed(3) : '0.000';
     rows += `
     <div class="debug-row" data-debug-idx="${displayIdx}">
-      <span class="racer-name" style="color: ${color}">${escHtml(racers[origIdx])}</span>
+      ${racerNameSpan(origIdx)}
       <span class="start-info" id="debugStart${displayIdx}">start: ${startVal}s (+0f)</span>
       <button class="debug-frame-btn" data-idx="${displayIdx}" data-delta="-5">-5f</button>
       <button class="debug-frame-btn" data-idx="${displayIdx}" data-delta="-1">-1f</button>
@@ -260,39 +265,39 @@ export function buildDebugPanelHtml(racers, placementOrder, clipTimes) {
     </div>`;
   });
 
+  const statsRows = placementOrder.map((origIdx, displayIdx) =>
+    `    <div class="debug-stats-row" id="debugStatsRow${displayIdx}">
+      ${racerNameSpan(origIdx)}
+      <span>duration: \u2014</span>
+      <span>frames: \u2014 dropped: \u2014</span>
+      <span>resolution: \u2014</span>
+    </div>`).join('\n');
+
+  const frameRows = placementOrder.map((origIdx, displayIdx) =>
+    `    <div class="debug-stats-row" id="debugFrameRow${displayIdx}">
+      ${racerNameSpan(origIdx)}
+      <span>\u2014</span>
+    </div>`).join('\n');
+
+  const timingRows = placementOrder.map((origIdx, displayIdx) =>
+    `    <div class="debug-timing-racer" id="debugTimingRacer${displayIdx}">
+      ${racerNameSpan(origIdx)}
+      <div class="debug-timing-events" id="debugTimingEvents${displayIdx}"></div>
+    </div>`).join('\n');
+
   return `<div class="debug-panel" id="debugPanel">
   <h3>DEBUG: Clip Start Calibration</h3>${rows}
   <div class="debug-stats" id="debugStats">
     <div class="debug-stats-header">VIDEO INFO</div>
-${placementOrder.map((origIdx, displayIdx) => {
-    const color = RACER_CSS_COLORS[origIdx % RACER_CSS_COLORS.length];
-    return `    <div class="debug-stats-row" id="debugStatsRow${displayIdx}">
-      <span class="racer-name" style="color: ${color}">${escHtml(racers[origIdx])}</span>
-      <span>duration: \u2014</span>
-      <span>frames: \u2014 dropped: \u2014</span>
-      <span>resolution: \u2014</span>
-    </div>`;
-  }).join('\n')}
+${statsRows}
   </div>
   <div class="debug-frames" id="debugFrames">
     <div class="debug-stats-header">FRAME POSITIONS</div>
-${placementOrder.map((origIdx, displayIdx) => {
-    const color = RACER_CSS_COLORS[origIdx % RACER_CSS_COLORS.length];
-    return `    <div class="debug-stats-row" id="debugFrameRow${displayIdx}">
-      <span class="racer-name" style="color: ${color}">${escHtml(racers[origIdx])}</span>
-      <span>\u2014</span>
-    </div>`;
-  }).join('\n')}
+${frameRows}
   </div>
   <div class="debug-timing" id="debugTiming">
     <div class="debug-stats-header">TIMING EVENTS</div>
-${placementOrder.map((origIdx, displayIdx) => {
-    const color = RACER_CSS_COLORS[origIdx % RACER_CSS_COLORS.length];
-    return `    <div class="debug-timing-racer" id="debugTimingRacer${displayIdx}">
-      <span class="racer-name" style="color: ${color}">${escHtml(racers[origIdx])}</span>
-      <div class="debug-timing-events" id="debugTimingEvents${displayIdx}"></div>
-    </div>`;
-  }).join('\n')}
+${timingRows}
   </div>
   <div class="debug-footer">
     <span>1 frame &#8776; 0.040s (assuming 25fps recording)</span>
