@@ -998,6 +998,20 @@ async function runBrowserRecording(config, barriers, isParallel, sharedState, op
     browser = null;
 
     const videoFile = getMostRecentVideo(outputDir);
+
+    // Build-time cue calibration: detect green cue PTS via ffprobe so the
+    // player works on file:// where canvas pixel reading is blocked.
+    let calibratedStart = null;
+    if (videoFile && markerSegments.length > 0) {
+      try {
+        const { startCues, frameDuration } = detectCueFrames(path.join(outputDir, videoFile));
+        if (startCues.length > 0) {
+          calibratedStart = Math.max(0, startCues[startCues.length - 1] + frameDuration);
+          console.error(`[${id}] Calibrated start PTS: ${calibratedStart.toFixed(3)}s`);
+        }
+      } catch (e) { console.error(`[${id}] Build-time calibration skipped: ${e.message}`); }
+    }
+
     return {
       id,
       videoPath: videoFile ? path.join(id, videoFile) : null,
@@ -1009,6 +1023,7 @@ async function runBrowserRecording(config, barriers, isParallel, sharedState, op
       recordingSegments: recordingSegments.length > 0 ? recordingSegments : null,
       recordingOffset,
       wallClockDuration,
+      calibratedStart,
       error: null
     };
   } catch (e) {
@@ -1118,6 +1133,7 @@ async function main() {
       recordingSegments: r.recordingSegments || null,
       recordingOffset: r.recordingOffset || 0,
       wallClockDuration: r.wallClockDuration || 0,
+      calibratedStart: r.calibratedStart ?? null,
       error: r.error || null
     })),
     errors: errors.length > 0 ? errors : undefined

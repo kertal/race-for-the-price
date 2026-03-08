@@ -176,6 +176,7 @@ export async function runSingleRace(ctx, runDir, runNavigation = null) {
       recordingOffset: b?.recordingOffset || 0,
       wallClockDuration: b?.wallClockDuration || 0,
       measurements: b?.measurements || [],
+      calibratedStart: b?.calibratedStart ?? null,
     };
   });
 

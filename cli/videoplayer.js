@@ -440,13 +440,42 @@ function buildPlayerScript(config) {
     return greenPx > total * 0.4;
   }
 
+  // Load video as blob URL to avoid file:// canvas tainting restrictions
+  function toBlobVideo(src) {
+    return new Promise(function(resolve, reject) {
+      var xhr = new XMLHttpRequest();
+      xhr.open('GET', src);
+      xhr.responseType = 'blob';
+      xhr.onload = function() {
+        if (xhr.status === 0 || xhr.status === 200) {
+          var blobUrl = URL.createObjectURL(xhr.response);
+          var tmp = document.createElement('video');
+          tmp.muted = true;
+          tmp.preload = 'auto';
+          tmp.src = blobUrl;
+          tmp._blobUrl = blobUrl;
+          function onReady() {
+            tmp.removeEventListener('loadedmetadata', onReady);
+            resolve(tmp);
+          }
+          tmp.addEventListener('loadedmetadata', onReady);
+          tmp.addEventListener('error', function() { reject(new Error('blob video load failed')); });
+          tmp.load();
+        } else {
+          reject(new Error('xhr status ' + xhr.status));
+        }
+      };
+      xhr.onerror = function() { reject(new Error('xhr error')); };
+      xhr.send();
+    });
+  }
+
   function detectGreenCuePts(video, scanTo) {
     var canvas = document.createElement('canvas');
     canvas.width = CUE_DETECT_SIZE;
     canvas.height = CUE_DETECT_SIZE;
     var ctx = canvas.getContext('2d', { willReadFrequently: true });
     var endT = Math.min(video.duration || 0, scanTo || video.duration || 0);
-    // Sample 10×10 from pixel (5,5) — center of the 30px cue, avoids edge artifacts
     var srcOffset = 5;
 
     function checkFrame(t) {
@@ -456,8 +485,9 @@ function buildPlayerScript(config) {
       });
     }
 
-    // Coarse step = 0.08s (2 frames). Guarantees catching cues with as few as 2 frames.
-    var coarseStep = FRAME_DT * 2;
+    // Coarse step = 0.16s (4 frames). CSS animation cue produces 7+ frames
+    // (0.24s+ PTS span), so 0.16s steps guarantee at least one hit.
+    var coarseStep = FRAME_DT * 4;
     var t = 0;
     function coarseScan() {
       if (t > endT) return Promise.resolve(null);
@@ -468,7 +498,6 @@ function buildPlayerScript(config) {
       });
     }
 
-    // Fine scan backward from coarse hit to find the first green frame
     function fineScan(hit) {
       if (hit === null) return Promise.resolve(null);
       var fineStart = Math.max(0, hit - coarseStep);
@@ -486,6 +515,7 @@ function buildPlayerScript(config) {
     }
 
     return coarseScan().then(fineScan).catch(function(e) {
+      if (e.name === 'SecurityError' || (e.message && e.message.indexOf('tainted') !== -1)) throw e;
       console.warn('Canvas cue detection failed:', e.message);
       return null;
     });
@@ -530,16 +560,37 @@ function buildPlayerScript(config) {
       idx++;
       if (!v || !ct || ct._wcStart == null || ct.calibratedStart != null) return next();
 
-      var savedTime = v.currentTime;
-      // Scan up to 60% of video — covers non-linear PTS mapping from heavy rendering
       var scanTo = v.duration * 0.6;
+
+      // Use blob URL video for scanning to avoid file:// canvas tainting
+      function scanWithBlob() {
+        return toBlobVideo(v.src).then(function(blobVid) {
+          return detectGreenCuePts(blobVid, scanTo).then(function(ptsStart) {
+            URL.revokeObjectURL(blobVid._blobUrl);
+            return ptsStart;
+          });
+        });
+      }
+
+      // Try direct canvas first (works over http), fall back to blob (needed for file://)
       return detectGreenCuePts(v, scanTo).then(function(ptsStart) {
         if (ptsStart !== null) {
           applyCalibrationToClip(ct, ptsStart, v.duration);
           anyCalibrated = true;
         }
-        return seekVideoTo(v, savedTime).catch(function() {});
-      }).then(next);
+        return next();
+      }).catch(function() {
+        return scanWithBlob().then(function(ptsStart) {
+          if (ptsStart !== null) {
+            applyCalibrationToClip(ct, ptsStart, v.duration);
+            anyCalibrated = true;
+          }
+          return next();
+        }).catch(function(e) {
+          console.warn('Canvas calibration failed for video ' + idx + ':', e.message);
+          return next();
+        });
+      });
     }
 
     return next().then(function(any) {
@@ -607,6 +658,11 @@ function buildPlayerScript(config) {
         var ct = clipTimes[i];
         if (ct._converted) continue;
         if (ct._wcStart == null) { ct._wcStart = ct.start; ct._wcEnd = ct.end; }
+        // Build-time calibration: ffprobe detected the exact cue PTS
+        if (ct.calibratedStart != null) {
+          applyCalibrationToClip(ct, ct.calibratedStart, videos[i].duration);
+          continue;
+        }
         var wcd = ct.wallClockDuration;
         var offset = ct.recordingOffset || 0;
         if (wcd > 0) {
