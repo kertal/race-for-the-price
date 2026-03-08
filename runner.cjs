@@ -922,9 +922,9 @@ function trimVideoWithFfmpeg(outputDir, markerSegments, id) {
  * Called N times (once per racer) by runParallel or runSequential.
  */
 async function runBrowserRecording(config, barriers, isParallel, sharedState, opts = {}) {
-  const { browserIndex = 0, totalBrowsers = 2, throttle = null, slowmo = 0, noOverlay = false, ffmpeg = false } = opts;
+  const { browserIndex = 0, totalBrowsers = 2, throttle = null, slowmo = 0, noOverlay = false, ffmpeg = false, recordingsDir = null } = opts;
   const { id, headless } = config;
-  const outputDir = path.join(__dirname, 'recordings', id);
+  const outputDir = recordingsDir ? path.join(recordingsDir, id) : path.join(__dirname, 'recordings', id);
   let browser = null;
   let context = null;
   let cdpCalibrator = null;
@@ -1107,15 +1107,16 @@ async function main() {
   try { config = JSON.parse(configJson); }
   catch (e) { console.error('Error: Invalid JSON:', e.message); process.exit(1); }
 
-  const { browsers, executionMode, throttle, headless, slowmo, noOverlay, ffmpeg } = config;
-  const runOpts = { throttle, slowmo, noOverlay, ffmpeg };
+  const { browsers, executionMode, throttle, headless, slowmo, noOverlay, ffmpeg, recordingsDir } = config;
+  const runOpts = { throttle, slowmo, noOverlay, ffmpeg, recordingsDir };
 
   // Set headless flag on all browser configs
   for (const browser of browsers) {
     browser.headless = headless || false;
   }
 
-  fs.mkdirSync(path.join(__dirname, 'recordings'), { recursive: true });
+  const recBase = recordingsDir || path.join(__dirname, 'recordings');
+  fs.mkdirSync(recBase, { recursive: true });
 
   let results;
   try {
