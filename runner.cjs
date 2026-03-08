@@ -119,18 +119,22 @@ function detectCueFrames(videoPath) {
 }
 
 /**
- * Build segments from detected cue frames.
- * Content starts after the green cue disappears and ends before the red cue appears.
+ * Compute clip timing from detected cue frames.
+ * Content starts when the green cue first appears and ends one frame before
+ * the red cue appears.
+ *
+ * Returns { segments, calibratedStart } — a single source of truth for both
+ * ffmpeg trimming and the video player's build-time calibration.
  */
-function cueSegments(startCues, endCues, frameDuration) {
-  if (startCues.length === 0 || endCues.length === 0) return [];
+function cueTimings(startCues, endCues, frameDuration) {
+  if (startCues.length === 0 || endCues.length === 0) {
+    return { segments: [], calibratedStart: null };
+  }
   const dt = frameDuration || 0.04; // default ~25fps
-  // Start one frame after the last green cue frame
-  const start = startCues[startCues.length - 1] + dt;
-  // End one frame before the first red cue frame
+  const calibratedStart = startCues[0];
   const end = endCues[0] - dt;
-  if (end > start) return [{ start, end }];
-  return [];
+  const segments = end > calibratedStart ? [{ start: calibratedStart, end }] : [];
+  return { segments, calibratedStart };
 }
 
 /**
@@ -911,7 +915,7 @@ function trimVideoWithFfmpeg(outputDir, markerSegments, id) {
   if (!videoFile) return null;
   const videoPath = path.join(outputDir, videoFile);
   const { startCues, endCues, frameDuration } = detectCueFrames(videoPath);
-  const segments = cueSegments(startCues, endCues, frameDuration);
+  const { segments } = cueTimings(startCues, endCues, frameDuration);
   const trimSegments = segments.length > 0 ? segments : markerSegments;
   if (segments.length === 0 && markerSegments.length > 0) {
     console.error(`[${id}] Cue detection failed, using marker segments`);
@@ -1004,9 +1008,9 @@ async function runBrowserRecording(config, barriers, isParallel, sharedState, op
     let calibratedStart = null;
     if (videoFile && markerSegments.length > 0) {
       try {
-        const { startCues, frameDuration } = detectCueFrames(path.join(outputDir, videoFile));
-        if (startCues.length > 0) {
-          calibratedStart = Math.max(0, startCues[startCues.length - 1] + frameDuration);
+        const cueData = detectCueFrames(path.join(outputDir, videoFile));
+        calibratedStart = cueTimings(cueData.startCues, cueData.endCues, cueData.frameDuration).calibratedStart;
+        if (calibratedStart != null) {
           console.error(`[${id}] Calibrated start PTS: ${calibratedStart.toFixed(3)}s`);
         }
       } catch (e) { console.error(`[${id}] Build-time calibration skipped: ${e.message}`); }
@@ -1142,8 +1146,13 @@ async function main() {
   process.exit(errors.length > 0 ? 1 : 0);
 }
 
-main().catch(err => {
-  console.error('Fatal error:', err);
-  console.log(JSON.stringify({ browsers: [], errors: [err.message] }));
-  process.exit(1);
-});
+// Allow unit testing of internal functions when required as a module
+if (require.main === module) {
+  main().catch(err => {
+    console.error('Fatal error:', err);
+    console.log(JSON.stringify({ browsers: [], errors: [err.message] }));
+    process.exit(1);
+  });
+}
+
+module.exports = { cueTimings };

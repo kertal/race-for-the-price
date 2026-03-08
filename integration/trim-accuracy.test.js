@@ -166,7 +166,7 @@ describe('trim-accuracy integration', () => {
     }
   });
 
-  it('calibratedStart points to the first frame after the green cue', () => {
+  it('calibratedStart points to the first green cue frame', () => {
     if (!resultsDir) return;
 
     const html = fs.readFileSync(path.join(resultsDir, 'index.html'), 'utf-8');
@@ -182,12 +182,10 @@ describe('trim-accuracy integration', () => {
       const { greenFrames } = detectCues(raceVideo);
       expect(greenFrames.length).toBeGreaterThanOrEqual(1);
 
-      const lastGreen = greenFrames[greenFrames.length - 1];
-      const frameDuration = greenFrames.length > 1 ? greenFrames[1] - greenFrames[0] : 0.04;
+      const firstGreen = greenFrames[0];
 
-      // calibratedStart should be lastGreen + 1 frame (±1 frame tolerance)
-      const expected = lastGreen + frameDuration;
-      expect(ct.calibratedStart).toBeCloseTo(expected, 1);
+      // calibratedStart should match the first green cue frame (±1 frame tolerance)
+      expect(ct.calibratedStart).toBeCloseTo(firstGreen, 1);
     }
   });
 
