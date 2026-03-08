@@ -233,33 +233,38 @@
   .section {
     max-width: 900px;
     width: 100%;
-    padding: 0.5rem 1.5rem 0.5rem;
+    padding: 0.8rem 1.5rem 0.5rem;
   }
   .section > summary {
     cursor: pointer;
     list-style: none;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.2rem 0;
   }
   .section > summary::-webkit-details-marker { display: none; }
   .section > summary::before {
-    content: "\25B6  ";
-    font-size: 0.65rem;
-    color: #888;
+    content: "\25B6";
+    font-size: 0.55rem;
+    color: #666;
     display: inline-block;
     transition: transform 0.2s;
+    flex-shrink: 0;
   }
   .section[open] > summary::before {
     transform: rotate(90deg);
   }
   .section > summary h2 {
-    display: inline;
     font-family: Georgia, serif;
     color: #d4af37;
-    font-size: 1.1rem;
+    font-size: 1rem;
     text-transform: uppercase;
     letter-spacing: 0.1em;
+    margin: 0;
   }
   .section-body {
-    padding-top: 0.3rem;
+    padding-top: 0.4rem;
   }
   .profile-note {
     color: #777;
@@ -358,14 +363,18 @@
     cursor: pointer;
     list-style: none;
     color: #e8e0d0;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
   }
   .profile-collapsible summary::-webkit-details-marker { display: none; }
   .profile-collapsible summary::before {
-    content: "\25B6  ";
-    font-size: 0.65rem;
-    color: #888;
+    content: "\25B6";
+    font-size: 0.55rem;
+    color: #666;
     transition: transform 0.2s;
     display: inline-block;
+    flex-shrink: 0;
   }
   .profile-collapsible[open] summary::before {
     transform: rotate(90deg);
