@@ -15,7 +15,6 @@
  */
 
 import fs from 'fs';
-import os from 'os';
 import path from 'path';
 import { spawn } from 'child_process';
 import { fileURLToPath } from 'url';
@@ -56,7 +55,6 @@ export function spawnRunner(ctx) {
   if (throttle.network !== 'none') flags.push(`net:${throttle.network}`);
   if (throttle.cpu > 1) flags.push(`cpu:${throttle.cpu}x`);
   if (settings.slowmo) flags.push(`slowmo:${settings.slowmo}x`);
-  if (settings.profile) flags.push('profile');
   if (settings.headless) flags.push('headless');
   if (settings.noOverlay) flags.push('no-overlay');
   if (settings.ffmpeg) flags.push('ffmpeg');
@@ -114,18 +112,23 @@ export function spawnRunner(ctx) {
 
 /** Run one race, collect results into runDir, return summary. */
 export async function runSingleRace(ctx, runDir, runNavigation = null) {
-  const { racerNames, settings, recordingsDir } = ctx;
+  const { racerNames, settings } = ctx;
   const { format, ffmpeg } = settings;
   const racerRunDirs = racerNames.map(name => path.join(runDir, name));
   racerRunDirs.forEach(d => fs.mkdirSync(d, { recursive: true }));
 
-  const result = await spawnRunner(ctx);
+  const recordingsDir = path.join(ctx.raceDir || path.dirname(runDir), 'tmp');
+  fs.mkdirSync(recordingsDir, { recursive: true });
+  const raceCtx = { ...ctx, runnerConfig: { ...ctx.runnerConfig, recordingsDir } };
+
+  const result = await spawnRunner(raceCtx);
 
   const progress = startProgress('Processing recordings…');
-  const recordingsBase = recordingsDir;
   const results = racerNames.map((name, i) =>
-    moveResults(recordingsBase, name, racerRunDirs[i], result.browsers?.[i] || {})
+    moveResults(recordingsDir, name, racerRunDirs[i], result.browsers?.[i] || {})
   );
+
+  fs.rmSync(recordingsDir, { recursive: true, force: true });
 
   const summary = buildSummary(racerNames, results, settings, runDir);
   fs.writeFileSync(path.join(runDir, 'summary.json'), JSON.stringify(summary, null, 2));
@@ -163,15 +166,23 @@ export async function runSingleRace(ctx, runDir, runNavigation = null) {
     altFiles = null;       // no format conversion without ffmpeg
   }
 
-  const traceFiles = settings.profile ? racerNames.map(name => `${name}/${name}.trace.json`) : null;
+  const traceFiles = racerNames.map(name => `${name}/${name}.trace.json`);
 
   // Collect clip times from recording segments for player-level trimming (default mode).
   // Uses only the first segment per racer — multiple non-contiguous segments are not
   // supported in player-level trimming (--ffmpeg mode concatenates them into one video).
   const clipTimes = ffmpeg ? null : racerNames.map((_, i) => {
-    const segs = result.browsers?.[i]?.recordingSegments;
+    const b = result.browsers?.[i];
+    const segs = b?.recordingSegments;
     if (!segs || segs.length === 0) return null;
-    return { start: segs[0].start, end: segs[0].end };
+    return {
+      start: segs[0].start,
+      end: segs[0].end,
+      recordingOffset: b?.recordingOffset || 0,
+      wallClockDuration: b?.wallClockDuration || 0,
+      measurements: b?.measurements || [],
+      calibratedStart: b?.calibratedStart ?? null,
+    };
   });
 
   const playerOptions = {
@@ -190,24 +201,21 @@ export async function runSingleRace(ctx, runDir, runNavigation = null) {
  * Build a race context from resolved settings and racer info.
  * This is the config object passed to spawnRunner/runSingleRace.
  */
-export function buildRaceContext({ racerNames, scripts, settings, rootDir = __dirname }) {
+export function buildRaceContext({ racerNames, scripts, settings, rootDir = __dirname, raceDir = null }) {
   const executionMode = settings.parallel ? 'parallel' : 'sequential';
   const throttle = { network: settings.network, cpu: settings.cpuThrottle };
-  const recordingsDir = fs.mkdtempSync(path.join(os.tmpdir(), 'race-recordings-'));
 
   const runnerConfig = {
     browsers: racerNames.map((name, i) => ({ id: name, script: scripts[i] })),
     executionMode,
     throttle,
     headless: settings.headless,
-    profile: settings.profile,
     slowmo: settings.slowmo,
     noOverlay: settings.noOverlay,
     ffmpeg: settings.ffmpeg,
-    recordingsDir,
   };
 
-  return { racerNames, settings, executionMode, throttle, runnerConfig, rootDir, recordingsDir };
+  return { racerNames, settings, executionMode, throttle, runnerConfig, rootDir, raceDir };
 }
 
 // --- CLI entry point ---
@@ -268,7 +276,6 @@ ${c.dim}  ───────────────────────�
   node race.js ${c.cyan}<dir>${c.reset} ${c.yellow}--format${c.reset}=${c.green}mov${c.reset}          Output format: webm (default), mov, gif
   node race.js ${c.cyan}<dir>${c.reset} ${c.yellow}--runs${c.reset}=${c.green}3${c.reset}            Run multiple times, report median
   node race.js ${c.cyan}<dir>${c.reset} ${c.yellow}--slowmo${c.reset}=${c.green}2${c.reset}           Slow-motion side-by-side replay (2x, 3x, etc.)
-  node race.js ${c.cyan}<dir>${c.reset} ${c.yellow}--no-profile${c.reset}         Disable performance profiling (on by default)
   node race.js ${c.cyan}<dir>${c.reset} ${c.yellow}--no-overlay${c.reset}         Record videos without overlays
   node race.js ${c.cyan}<dir>${c.reset} ${c.yellow}--ffmpeg${c.reset}             Enable FFmpeg processing (trim, merge, convert)
 
@@ -321,7 +328,6 @@ settings = applyOverrides(settings, boolFlags, kvFlags);
 
 settings.parallel = settings.parallel ?? false;
 settings.headless = settings.headless ?? false;
-settings.profile = settings.profile ?? false;
 settings.noOverlay = settings.noOverlay ?? false;
 settings.ffmpeg = settings.ffmpeg ?? false;
 settings.format = settings.format ?? 'webm';
@@ -332,7 +338,7 @@ settings.runs = settings.runs ?? 1;
 
 // --- Build race context ---
 
-const ctx = buildRaceContext({ racerNames, scripts, settings, rootDir: __dirname });
+const ctx = buildRaceContext({ racerNames, scripts, settings, rootDir: __dirname, raceDir });
 const resultsDir = path.join(raceDir, `results-${formatTimestamp(new Date())}`);
 const totalRuns = settings.runs;
 
