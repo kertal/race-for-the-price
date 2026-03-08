@@ -590,7 +590,7 @@ describe('buildPlayerHtml debug mode', () => {
   });
 
   it('script includes debug functions', () => {
-    for (const fn of ['FRAME_STEP', 'switchToDebug', 'adjustDebugOffset', 'debugOffsets', 'getAdjustedClipTimes', 'resolveAdjustedClip']) {
+    for (const fn of ['FRAME_STEP', 'toggleCalibration', 'adjustDebugOffset', 'debugOffsets', 'getAdjustedClipTimes', 'resolveAdjustedClip']) {
       expect(debugHtml).toContain(fn);
     }
   });

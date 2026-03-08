@@ -384,7 +384,7 @@ const modeDebug = document.getElementById('modeDebug');
 const debugPanel = document.getElementById('debugPanel');
 
 function setActiveMode(btn) {
-  [modeRace, modeFull, modeMerged, modeDebug].forEach(b => b?.classList.remove('active'));
+  [modeRace, modeFull, modeMerged].forEach(b => b?.classList.remove('active'));
   btn?.classList.add('active');
 }
 
@@ -422,13 +422,23 @@ function switchMode(targetSrcSet, targetVideos, modeBtn, opts) {
   }
 }
 
+function hideCalibration() {
+  if (debugPanel) debugPanel.style.display = 'none';
+  if (modeDebug) { modeDebug.classList.remove('active'); modeDebug.style.display = 'none'; }
+}
+
+function showCalibrationBtn() {
+  if (modeDebug) modeDebug.style.display = '';
+}
+
 function switchToRace() {
   switchMode('race', raceVideos, modeRace, {
     loadSrc() { raceVideos.forEach((v, i) => { v.src = raceVideoPaths[i]; }); },
     onActivate() {
       playerContainer.style.display = 'flex';
       if (mergedContainer) mergedContainer.style.display = 'none';
-      if (debugPanel) debugPanel.style.display = 'none';
+      hideCalibration();
+      showCalibrationBtn();
     },
     doSeek() {
       activeClip = resolveAdjustedClip();
@@ -447,7 +457,7 @@ function switchToFull() {
     onActivate() {
       playerContainer.style.display = 'flex';
       if (mergedContainer) mergedContainer.style.display = 'none';
-      if (debugPanel) debugPanel.style.display = 'none';
+      hideCalibration();
     },
     doSeek() {
       activeClip = null;
@@ -464,7 +474,7 @@ function switchToMerged() {
     onActivate() {
       playerContainer.style.display = 'none';
       mergedContainer.style.display = 'block';
-      if (debugPanel) debugPanel.style.display = 'none';
+      hideCalibration();
       activeClip = null;
       duration = mergedVideo.duration || 0;
     },
@@ -476,24 +486,16 @@ function switchToMerged() {
   });
 }
 
-function switchToDebug() {
-  switchMode('race', raceVideos, modeDebug, {
-    loadSrc() { raceVideos.forEach((v, i) => { v.src = raceVideoPaths[i]; }); },
-    onActivate() {
-      playerContainer.style.display = 'flex';
-      if (mergedContainer) mergedContainer.style.display = 'none';
-      if (debugPanel) debugPanel.style.display = 'block';
-    },
-    doSeek() {
-      activeClip = resolveAdjustedClip();
-      updateDebugDisplay();
-      updateDebugStats();
-      updateFramePositions();
-      seekAll(activeClip ? activeClip.start : 0);
-      scrubber.value = 0;
-      updateTimeDisplay();
-    }
-  });
+function toggleCalibration() {
+  if (!debugPanel) return;
+  const visible = debugPanel.style.display === 'block';
+  debugPanel.style.display = visible ? 'none' : 'block';
+  modeDebug?.classList.toggle('active', !visible);
+  if (!visible) {
+    updateDebugDisplay();
+    updateDebugStats();
+    updateFramePositions();
+  }
 }
 
 // --- Debug panel: video stats ---
@@ -757,7 +759,7 @@ if (debugPanel) {
 if (modeRace) modeRace.addEventListener('click', switchToRace);
 if (modeFull) modeFull.addEventListener('click', switchToFull);
 if (modeMerged) modeMerged.addEventListener('click', switchToMerged);
-if (modeDebug) modeDebug.addEventListener('click', switchToDebug);
+if (modeDebug) modeDebug.addEventListener('click', toggleCalibration);
 if (mergedVideo) mergedVideo.addEventListener('loadedmetadata', () => {
   if (videos.indexOf(mergedVideo) !== -1) {
     duration = mergedVideo.duration;

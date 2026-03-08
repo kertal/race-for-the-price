@@ -105,7 +105,8 @@ export function buildPlayerHtml(summary, videoFiles, altFormat, altFiles, option
 </div>` : '';
 
     debugPanelOut = hasClipTimes ? buildDebugPanelHtml(racers, placementOrder, clipTimes) : '';
-    playerSection = buildPlayerSectionHtml(videoElements, mergedVideoElement);
+    const calibrationBtn = hasClipTimes ? '<button class="export-btn" id="modeDebug" title="Calibrate clip start times">Calibration</button>' : '';
+    playerSection = buildPlayerSectionHtml(videoElements, mergedVideoElement, { calibrationBtn });
 
     const videoIds = placementOrder.map((_, i) => `v${i}`);
     const orderedVideoFiles = placementOrder.map(i => videoFiles[i]);
@@ -132,13 +133,11 @@ export function buildPlayerHtml(summary, videoFiles, altFormat, altFiles, option
   const hasToggle = hasFullVideos || hasClipTimes || hasMergedVideo;
   const fullBtn = (hasFullVideos || hasClipTimes) ? '<button class="mode-btn" id="modeFull" title="Full recordings">Full</button>' : '';
   const mergedBtn = hasMergedVideo ? '<button class="mode-btn" id="modeMerged" title="Side-by-side merged video">Merged</button>' : '';
-  const debugBtn = hasClipTimes ? '<button class="mode-btn" id="modeDebug" title="Calibrate clip start times">Calibration</button>' : '';
   const modeToggle = hasToggle ? `
   <div class="mode-toggle">
     <button class="mode-btn active" id="modeRace" title="Race segments only">Race</button>
     ${fullBtn}
     ${mergedBtn}
-    ${debugBtn}
   </div>` : '';
 
   return render(TEMPLATE, {
