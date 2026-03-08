@@ -361,7 +361,7 @@ ${debugPanelHtml || ''}
 // ---------------------------------------------------------------------------
 
 function buildPlayerScript(config) {
-  const { videoVars, videoArray, raceVideoPaths, fullVideoPaths, clipTimesJson, racerNamesJson, racerColorsJson } = config;
+  const { videoVars, videoArray, raceVideoPaths, fullVideoPaths, clipTimesJson, racerNamesJson, racerColorsJson, raceDate } = config;
   return `<script>
 (function() {
   ${videoVars}
@@ -392,7 +392,7 @@ function buildPlayerScript(config) {
   var canvasCalibrationStarted = false;
 
   // --- Canvas calibration cache (localStorage) ---
-  var CALIBRATION_CACHE_KEY = 'raceCalibration:' + raceVideoPaths.join('|');
+  var CALIBRATION_CACHE_KEY = 'raceCalibration:' + ${raceDate} + ':' + raceVideoPaths.join('|');
 
   function loadCalibrationCache() {
     try {
@@ -1469,6 +1469,7 @@ export function buildPlayerHtml(summary, videoFiles, altFormat, altFiles, option
         : 'null',
       racerNamesJson: JSON.stringify(orderedRacerNames),
       racerColorsJson: JSON.stringify(orderedRacerColors),
+      raceDate: JSON.stringify(summary.timestamp ? new Date(summary.timestamp).toISOString().slice(0, 10) : new Date().toISOString().slice(0, 10)),
     });
   }
 

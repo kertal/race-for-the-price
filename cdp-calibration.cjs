@@ -63,17 +63,22 @@ async function createCdpCalibrator(page) {
     },
 
     /**
-     * Convert a wall-clock timestamp (Date.now()) to an estimated video PTS
-     * in seconds. Returns null if we have insufficient data.
+     * Convert a wall-clock timestamp to an estimated video PTS in seconds.
      *
-     * @param {number} wallMs - Date.now() value to convert
+     * @param {number} wallMs       - Date.now() of the event to locate
+     * @param {number} ptsZeroWallMs - Date.now() captured right after
+     *   context.newPage() returns. Playwright starts its screencast during
+     *   newPage init, so this timestamp is very close to video PTS=0.
+     *   By differencing two interpolated CDP timestamps the constant clock
+     *   offset between Node and Chrome cancels out.
      * @returns {number|null}
      */
-    wallClockToPts(wallMs) {
-      if (mapping.length < 2 || firstCdpTs === null) return null;
+    wallClockToPts(wallMs, ptsZeroWallMs) {
+      if (mapping.length < 2) return null;
       const cdpTs = interpolateCdpTimestamp(mapping, wallMs);
-      if (cdpTs === null) return null;
-      return cdpTs - firstCdpTs;
+      const refCdpTs = interpolateCdpTimestamp(mapping, ptsZeroWallMs);
+      if (cdpTs === null || refCdpTs === null) return null;
+      return cdpTs - refCdpTs;
     },
 
     /** True when at least 2 mapping samples exist. */
@@ -144,7 +149,7 @@ function interpolateCdpTimestamp(mapping, wallMs) {
 function createNullCalibrator() {
   return {
     async stop() {},
-    wallClockToPts() { return null; },
+    wallClockToPts(_wallMs, _ptsZeroWallMs) { return null; },
     get hasData() { return false; },
     get sampleCount() { return 0; },
   };
