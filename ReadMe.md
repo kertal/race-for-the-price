@@ -216,7 +216,7 @@ races/my-race/results-2026-01-31_14-30-00/
   README.md                           # Race report card
 ```
 
-By default, videos are untrimmed and the HTML player handles virtual trimming via clip times. With `--ffmpeg`, videos are frame-accurately trimmed, a side-by-side merged video is created, and format conversion (mov/gif) is available.
+By default, the HTML player handles virtual trimming via clip times and uses canvas-based calibration for frame-accurate playback — no external dependencies needed. With `--ffmpeg`, videos are physically trimmed, a side-by-side merged video is created, and format conversion (mov/gif) is available.
 
 Disclaimer: Due to the nature of the way the video is transformed, the aim here is not accuracy, it's to showcase, to visualize performance. To compare between different network and browser settings.
 Do double check and question the metrics and findings. It should be a helpful tool supporting performance related narratives, but don't assume 100% accuracy. However, this generally applies to many 
@@ -230,7 +230,7 @@ The terminal delivers the verdict in style:
 - 📊 Bar chart comparison of every timed measurement
 - 🥇🥈 Medal assignments per measurement
 - 🏆 **Overall winner declared**
-- 📹 Side-by-side video replay (in-browser export, or server-side via `--ffmpeg`)
+- 📹 Side-by-side video replay (in-browser export, or physical file via `--ffmpeg`)
 - 📈 Chrome performance traces (`--profile`, open in `chrome://tracing`)
 
 ## `settings.json` Reference
@@ -256,9 +256,9 @@ The terminal delivers the verdict in style:
 ## Prerequisites
 
 - **Node.js** 18+ (required)
-- **FFmpeg** (optional — only needed with `--ffmpeg` for server-side video trimming, side-by-side merging, and format conversion)
+- **FFmpeg** (optional — only needed with `--ffmpeg` for physical video trimming, side-by-side merging, and format conversion)
 
-Without FFmpeg, the tool works out of the box — the HTML player handles virtual trimming and includes a client-side Export button for creating side-by-side videos directly in the browser.
+FFmpeg is **not required** for normal use. The HTML player handles virtual trimming with frame-accurate canvas-based calibration and includes a client-side Export button for creating side-by-side videos directly in the browser.
 
 See the **[Installation Guide](INSTALLATION.md)** for detailed setup instructions on every platform.
 

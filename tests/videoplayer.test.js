@@ -192,15 +192,16 @@ describe('buildPlayerHtml', () => {
     expect(html).toContain('Performance Profile');
     expect(html).toContain('Lower values are better');
     expect(html).toContain('During Measurement');
+    expect(html).toContain('<details');
     expect(html).toContain('Total Session');
   });
 
   it('shows profile racers sorted by value with deltas', () => {
-    const metrics1 = { total: { networkTransferSize: 2000 }, measured: {} };
-    const metrics2 = { total: { networkTransferSize: 1000 }, measured: {} };
+    const metrics1 = { total: {}, measured: { networkTransferSize: 2000 } };
+    const metrics2 = { total: {}, measured: { networkTransferSize: 1000 } };
     const profileComparison = buildProfileComparison(['lauda', 'hunt'], [metrics1, metrics2]);
     const html = buildPlayerHtml(makeSummary({ profileComparison }), videoFiles);
-    const profileSection = html.slice(html.indexOf('Total Session'));
+    const profileSection = html.slice(html.indexOf('During Measurement'));
     expect(profileSection.indexOf('>hunt<')).toBeLessThan(profileSection.indexOf('>lauda<'));
     expect(profileSection).toContain('(+');
   });
@@ -401,6 +402,118 @@ describe('buildPlayerHtml clipTimes', () => {
   it('does not show Merged button without mergedVideoFile', () => {
     expect(withClips([{ start: 1, end: 3 }, { start: 1, end: 3 }])).not.toContain('id="modeMerged"');
   });
+
+  it('embeds recordingOffset and wallClockDuration in clipTimes JSON', () => {
+    const clips = [
+      { start: 1.5, end: 3, recordingOffset: 0.12, wallClockDuration: 5.0 },
+      { start: 1.2, end: 2.8, recordingOffset: 0.15, wallClockDuration: 4.8 },
+    ];
+    const html = withClips(clips);
+    expect(html).toContain('"recordingOffset"');
+    expect(html).toContain('"wallClockDuration"');
+    const clipMatch = html.match(/const clipTimes = (\[.*?\]);/);
+    expect(clipMatch).toBeTruthy();
+    const parsed = JSON.parse(clipMatch[1]);
+    expect(parsed[0].recordingOffset).toBe(0.12);
+    expect(parsed[0].wallClockDuration).toBe(5.0);
+    expect(parsed[1].recordingOffset).toBe(0.15);
+    expect(parsed[1].wallClockDuration).toBe(4.8);
+  });
+
+  it('includes PTS conversion logic in onMeta', () => {
+    const clips = [
+      { start: 1, end: 3, recordingOffset: 0.1, wallClockDuration: 5 },
+      { start: 1, end: 3, recordingOffset: 0.1, wallClockDuration: 5 },
+    ];
+    const html = withClips(clips);
+    expect(html).toContain('_converted');
+    expect(html).toContain('wallClockDuration');
+    expect(html).toContain('recordingOffset');
+  });
+
+  it('includes canvas-based calibration with localStorage cache', () => {
+    const clips = [
+      { start: 1, end: 3, recordingOffset: 0.1, wallClockDuration: 5 },
+      { start: 1, end: 3, recordingOffset: 0.1, wallClockDuration: 5 },
+    ];
+    const html = withClips(clips);
+    expect(html).toContain('detectGreenCuePts');
+    expect(html).toContain('calibrateFromCanvas');
+    expect(html).toContain('isGreenCue');
+    expect(html).toContain('canvasCalibrationStarted');
+    expect(html).toContain('drawImage');
+    expect(html).toContain('getImageData');
+    expect(html).toContain('loadCalibrationCache');
+    expect(html).toContain('saveCalibrationCache');
+    expect(html).toContain('restoreFromCache');
+    expect(html).toContain('localStorage');
+  });
+
+  it('scans from 0 up to 60% of video duration for green cue', () => {
+    const clips = [
+      { start: 1, end: 3, recordingOffset: 0.1, wallClockDuration: 5 },
+      { start: 1, end: 3, recordingOffset: 0.1, wallClockDuration: 5 },
+    ];
+    const html = withClips(clips);
+    expect(html).toContain('v.duration * 0.6');
+    expect(html).toContain('var t = 0');
+  });
+
+  it('uses 0.16s coarse step matching CSS-animation cue frame count', () => {
+    const clips = [
+      { start: 1, end: 3, recordingOffset: 0.1, wallClockDuration: 5 },
+      { start: 1, end: 3, recordingOffset: 0.1, wallClockDuration: 5 },
+    ];
+    const html = withClips(clips);
+    expect(html).toContain('FRAME_DT * 4');
+    expect(html).toContain('FRAME_DT = 0.04');
+  });
+
+  it('applies build-time calibratedStart directly, skipping linear scaling', () => {
+    const clips = [
+      { start: 1, end: 3, recordingOffset: 0.1, wallClockDuration: 5, calibratedStart: 2.56 },
+      { start: 1, end: 3, recordingOffset: 0.1, wallClockDuration: 5, calibratedStart: 3.12 },
+    ];
+    const html = withClips(clips);
+    expect(html).toContain('"calibratedStart":2.56');
+    expect(html).toContain('"calibratedStart":3.12');
+    expect(html).toContain('ct.calibratedStart != null');
+    expect(html).toContain('applyCalibrationToClip(ct, ct.calibratedStart');
+  });
+
+  it('falls through to linear scaling when calibratedStart is null', () => {
+    const clips = [
+      { start: 1, end: 3, recordingOffset: 0.1, wallClockDuration: 5, calibratedStart: null },
+      { start: 1, end: 3, recordingOffset: 0.1, wallClockDuration: 5, calibratedStart: null },
+    ];
+    const html = withClips(clips);
+    expect(html).toContain('"calibratedStart":null');
+    // Linear scaling path should still exist
+    expect(html).toContain('ct._ptsScale = scale');
+  });
+
+  it('re-throws SecurityError from detectGreenCuePts for blob fallback', () => {
+    const clips = [
+      { start: 1, end: 3, recordingOffset: 0.1, wallClockDuration: 5 },
+      { start: 1, end: 3, recordingOffset: 0.1, wallClockDuration: 5 },
+    ];
+    const html = withClips(clips);
+    expect(html).toContain("e.name === 'SecurityError'");
+    expect(html).toContain("e.message.indexOf('tainted')");
+    expect(html).toContain('throw e');
+  });
+
+  it('includes toBlobVideo fallback for file:// canvas tainting', () => {
+    const clips = [
+      { start: 1, end: 3, recordingOffset: 0.1, wallClockDuration: 5 },
+      { start: 1, end: 3, recordingOffset: 0.1, wallClockDuration: 5 },
+    ];
+    const html = withClips(clips);
+    expect(html).toContain('toBlobVideo');
+    expect(html).toContain('XMLHttpRequest');
+    expect(html).toContain('createObjectURL');
+    expect(html).toContain('scanWithBlob');
+  });
 });
 
 // --- Files section ---
@@ -499,6 +612,99 @@ describe('buildPlayerHtml debug mode', () => {
     const panelSection = html.slice(html.indexOf('id="debugPanel"'));
     expect(panelSection.indexOf('>hunt<')).toBeLessThan(panelSection.indexOf('>lauda<'));
   });
+
+  it('renders FRAME POSITIONS section in debug panel', () => {
+    expect(debugHtml).toContain('id="debugFrames"');
+    expect(debugHtml).toContain('FRAME POSITIONS');
+    expect(debugHtml).toContain('id="debugFrameRow0"');
+    expect(debugHtml).toContain('id="debugFrameRow1"');
+  });
+
+  it('script includes frame position update showing clip, full, and range', () => {
+    expect(debugHtml).toContain('updateFramePositions');
+    expect(debugHtml).toContain('clipFrame');
+    expect(debugHtml).toContain('clipStartFrame');
+    expect(debugHtml).toContain('clipEndFrame');
+    expect(debugHtml).toContain('>clip: ');
+    expect(debugHtml).toContain('>full: ');
+    expect(debugHtml).toContain('>range: ');
+  });
+});
+
+// --- Timing events in debug mode ---
+
+describe('buildPlayerHtml timing events', () => {
+  const clipTimes = [
+    { start: 1.5, end: 3, recordingOffset: 0.12, wallClockDuration: 5.0, measurements: [{ name: 'Load', startTime: 1.6, endTime: 2.8 }] },
+    { start: 1.2, end: 2.8, recordingOffset: 0.15, wallClockDuration: 4.8, measurements: [{ name: 'Load', startTime: 1.3, endTime: 2.5 }] },
+  ];
+  const timingHtml = buildPlayerHtml(makeSummary(), videoFiles, null, null, { clipTimes });
+
+  it('renders TIMING EVENTS section in debug panel', () => {
+    expect(timingHtml).toContain('TIMING EVENTS');
+    expect(timingHtml).toContain('id="debugTiming"');
+    expect(timingHtml).toContain('debug-timing');
+  });
+
+  it('renders per-racer timing placeholder divs', () => {
+    expect(timingHtml).toContain('id="debugTimingRacer0"');
+    expect(timingHtml).toContain('id="debugTimingRacer1"');
+    expect(timingHtml).toContain('id="debugTimingEvents0"');
+    expect(timingHtml).toContain('id="debugTimingEvents1"');
+  });
+
+  it('embeds measurements in clipTimes JSON', () => {
+    const clipMatch = timingHtml.match(/const clipTimes = (\[.*?\]);/);
+    expect(clipMatch).toBeTruthy();
+    const parsed = JSON.parse(clipMatch[1]);
+    // clipTimes are reordered by placement; winner (lauda) is first
+    expect(parsed[0].measurements).toBeDefined();
+    expect(parsed[0].measurements.length).toBeGreaterThan(0);
+    expect(parsed[0].measurements[0].name).toBe('Load');
+  });
+
+  it('saves _wcStart, _wcEnd, _ptsScale in onMeta before PTS conversion', () => {
+    expect(timingHtml).toContain('ct._wcStart = ct.start');
+    expect(timingHtml).toContain('ct._wcEnd = ct.end');
+    expect(timingHtml).toContain('ct._ptsScale = scale');
+  });
+
+  it('script contains timing event labels and column headers', () => {
+    expect(timingHtml).toContain('Context created');
+    expect(timingHtml).toContain('recordingStartTime (t=0)');
+    expect(timingHtml).toContain('raceRecordingStart()');
+    expect(timingHtml).toContain('raceRecordingEnd()');
+    expect(timingHtml).toContain('Pre-close');
+    expect(timingHtml).toContain('Video time scale');
+    // Column headers
+    expect(timingHtml).toContain('<b>Wall-clock</b>');
+    expect(timingHtml).toContain('<b>Video time</b>');
+    expect(timingHtml).toContain('<b>Frame</b>');
+  });
+
+  it('script includes frame number computation', () => {
+    expect(timingHtml).toContain('toFrame');
+    expect(timingHtml).toContain('Math.round(pts / 0.04)');
+  });
+
+  it('includes timingData in Copy JSON handler', () => {
+    expect(timingHtml).toContain('timingData');
+    expect(timingHtml).toContain('videoDuration');
+    expect(timingHtml).toContain('_wcStart');
+    expect(timingHtml).toContain('_ptsScale');
+  });
+
+  it('handles clipTimes without measurements gracefully', () => {
+    const noMeasClips = [
+      { start: 1, end: 3, recordingOffset: 0.1, wallClockDuration: 5 },
+      { start: 1, end: 3, recordingOffset: 0.1, wallClockDuration: 5 },
+    ];
+    const html = buildPlayerHtml(makeSummary(), videoFiles, null, null, { clipTimes: noMeasClips });
+    expect(html).toContain('TIMING EVENTS');
+    expect(html).toContain('id="debugTimingEvents0"');
+    // Should still contain measurement iteration code
+    expect(html).toContain('var measurements = ct.measurements || []');
+  });
 });
 
 // --- Export (client-side side-by-side stitching) ---
@@ -512,5 +718,62 @@ describe('buildPlayerHtml export', () => {
 
   it('does not render Export button when no videos', () => {
     expect(buildPlayerHtml(makeSummary(), [])).not.toContain('id="exportBtn"');
+  });
+});
+
+// --- Clip alignment ---
+
+describe('buildPlayerHtml clip alignment', () => {
+  const withClips = (clips, opts = {}) => buildPlayerHtml(opts.summary || makeSummary(), videoFiles, null, null, { clipTimes: clips, ...opts });
+
+  it('resolveClip uses maxDuration, not maxEnd', () => {
+    const html = withClips([{ start: 1, end: 3 }, { start: 2, end: 3.5 }]);
+    // Should contain duration-based logic, not union-based
+    expect(html).toContain('maxDuration');
+    expect(html).toContain('minStart + maxDuration');
+  });
+
+  it('seekAll uses elapsed-time mapping for per-video positioning', () => {
+    const html = withClips([{ start: 1, end: 3 }, { start: 2, end: 3.5 }]);
+    // Should compute elapsed from activeClip.start and offset each video individually
+    expect(html).toContain('var elapsed = t - activeClip.start');
+    expect(html).toContain('target = ct[i].start + elapsed');
+  });
+
+  it('resolveAdjustedClip also uses maxDuration', () => {
+    const html = withClips([{ start: 1, end: 3 }, { start: 2, end: 3.5 }]);
+    const script = html.slice(html.indexOf('resolveAdjustedClip'));
+    expect(script).toContain('maxDuration');
+  });
+
+  it('updateTimeDisplay derives time from scrubber, not primary.currentTime', () => {
+    const html = withClips([{ start: 1, end: 3 }, { start: 2, end: 3.5 }]);
+    const fnMatch = html.match(/function updateTimeDisplay\(\)\s*\{([^}]+)\}/);
+    expect(fnMatch).toBeTruthy();
+    expect(fnMatch[1]).toContain('scrubber.value');
+    expect(fnMatch[1]).not.toContain('primary.currentTime');
+  });
+
+  it('timeupdate clip-end handler sets scrubber to 1000 and returns', () => {
+    const html = withClips([{ start: 1, end: 3 }, { start: 2, end: 3.5 }]);
+    // After seekAll(activeClip.end), scrubber should be set to 1000
+    expect(html).toContain('scrubber.value = 1000');
+  });
+
+  it('stepFrame derives position from scrubber for elapsed-time consistency', () => {
+    const html = withClips([{ start: 1, end: 3 }, { start: 2, end: 3.5 }]);
+    const stepStart = html.indexOf('function stepFrame');
+    // Extract just the stepFrame function body (up to next top-level function)
+    const stepFn = html.slice(stepStart, html.indexOf('\n  function', stepStart + 1));
+    // Should NOT use Math.max.apply on video currentTimes (old approach)
+    expect(stepFn).not.toContain('Math.max.apply');
+    expect(stepFn).toContain('scrubber.value');
+  });
+
+  it('export seek code uses elapsed-based alignment', () => {
+    const html = withClips([{ start: 1, end: 3 }, { start: 2, end: 3.5 }]);
+    const exportSection = html.slice(html.indexOf('seekPromises'));
+    expect(exportSection).toContain('var elapsed = startTime - activeClip.start');
+    expect(exportSection).toContain('target = ct[i].start + elapsed');
   });
 });

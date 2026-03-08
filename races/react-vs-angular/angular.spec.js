@@ -4,14 +4,15 @@
 
 await page.raceRecordingStart();
 await page.waitForTimeout(500);
-await page.raceStart('Load Framework');
+await page.raceStart('Webpage loaded and stable');
 
 await page.goto('https://angular.dev/', { waitUntil: 'load' });
 
-// Wait for the main content to be visible and interactive
-await page.waitForSelector('a[href="/tutorials"]', { state: 'visible' });
 
-page.raceEnd('Load Framework');
+await page.raceWaitForVisualStability();
+
+page.raceEnd('Webpage loaded and stable');
+
 page.raceMessage('Modules loaded!');
 await page.waitForTimeout(1500);
 await page.raceRecordingEnd();
