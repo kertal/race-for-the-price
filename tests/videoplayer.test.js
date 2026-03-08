@@ -459,13 +459,13 @@ describe('buildPlayerHtml clipTimes', () => {
     expect(html).toContain('var t = 0');
   });
 
-  it('uses 0.16s coarse step matching CSS-animation cue frame count', () => {
+  it('uses 0.08s coarse step matching fallback cue frame count', () => {
     const clips = [
       { start: 1, end: 3, recordingOffset: 0.1, wallClockDuration: 5 },
       { start: 1, end: 3, recordingOffset: 0.1, wallClockDuration: 5 },
     ];
     const html = withClips(clips);
-    expect(html).toContain('FRAME_DT * 4');
+    expect(html).toContain('FRAME_DT * 2');
     expect(html).toContain('FRAME_DT = 0.04');
   });
 

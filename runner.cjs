@@ -19,6 +19,7 @@ const fs = require('fs');
 const path = require('path');
 const { execFileSync } = require('child_process');
 const { waitForStability } = require('./visual-stability.cjs');
+const { createCdpCalibrator } = require('./cdp-calibration.cjs');
 
 // Track active browsers/contexts for cleanup on SIGTERM/SIGINT
 let activeBrowsers = [];
@@ -68,12 +69,12 @@ function getMostRecentVideo(dir) {
  */
 function detectCueFrames(videoPath) {
   try {
-    // Crop 30x30 top-left corner where the cue square lives, then analyze color
+    // Crop top-left pixel where the cue lives, then analyze color
     // Percent-encode characters that are special in FFmpeg lavfi filter syntax
     const escaped = videoPath.replace(/\\/g, '/').replace(/[';,\[\]=\\ ]/g, ch => '%' + ch.charCodeAt(0).toString(16).padStart(2, '0'));
     const result = execFileSync('ffprobe', [
       '-f', 'lavfi',
-      '-i', 'movie=' + escaped + ',crop=30:30:0:0,signalstats',
+      '-i', 'movie=' + escaped + ',crop=4:4:0:0,signalstats',
       '-show_entries', 'frame=pts_time:frame_tags=lavfi.signalstats.HUEAVG,lavfi.signalstats.SATAVG,lavfi.signalstats.YAVG',
       '-of', 'csv=p=0',
       '-v', 'quiet'
@@ -528,21 +529,23 @@ function sanitizeScript(script) {
  *
  * Returns { segments, measurements } for video trimming and result comparison.
  */
-async function runMarkerMode(page, context, config, barriers, isParallel, sharedState, recordingStartTime, noOverlay = false, metricsCollector = null) {
+async function runMarkerMode(page, context, config, barriers, isParallel, sharedState, recordingStartTime, noOverlay = false, metricsCollector = null, cdpCalibrator = null) {
   const { id, script: raceScript } = config;
 
   const segments = [];
   let currentSegmentStart = null;
   const measurements = [];
   const activeMeasurements = {};
+  let cdpStartWallMs = null;
 
-  // --- Visual cues for frame-accurate trimming / calibration ---
-  // A colored square in the top-left corner is detected by the player (canvas API)
-  // for PTS calibration, and by ffprobe for physical video trimming (--ffmpeg).
+  // --- Visual cues for frame-accurate trimming / calibration (fallback) ---
+  // Only used when CDP screencast calibration is unavailable. A tiny colored
+  // square in the top-left corner, displayed for 2 frames (~80ms at 25fps).
+  // 4px is the smallest size that reliably survives VP8 video compression.
   const CUE_COLOR_START = '#00FF00';
   const CUE_COLOR_END = '#FF0000';
-  const CUE_DURATION_MS = 300;     // used for both ffmpeg trimming and canvas calibration
-  const CUE_SIZE = 30;
+  const CUE_DURATION_MS = 80;
+  const CUE_SIZE = 4;
 
   const flashCue = async (color, durationMs) => {
     const dur = typeof durationMs === 'number' ? durationMs : CUE_DURATION_MS;
@@ -658,8 +661,11 @@ async function runMarkerMode(page, context, config, barriers, isParallel, shared
       const result = await barriers.recordingStart.wait(`${id} startRecording`);
       if (result?.aborted) return;
     }
-    currentSegmentStart = (Date.now() - recordingStartTime) / 1000;
-    await flashCue(CUE_COLOR_START);
+    cdpStartWallMs = Date.now();
+    currentSegmentStart = (cdpStartWallMs - recordingStartTime) / 1000;
+    if (!cdpCalibrator || !cdpCalibrator.hasData) {
+      await flashCue(CUE_COLOR_START);
+    }
     await showRecordingIndicator();
   };
 
@@ -672,7 +678,9 @@ async function runMarkerMode(page, context, config, barriers, isParallel, shared
     stopPromise = (async () => {
       await hideRecordingIndicator();
       await showMedal();
-      await flashCue(CUE_COLOR_END);
+      if (!cdpCalibrator || !cdpCalibrator.hasData) {
+        await flashCue(CUE_COLOR_END);
+      }
     })();
     return stopPromise;
   };
@@ -790,7 +798,7 @@ async function runMarkerMode(page, context, config, barriers, isParallel, shared
     }
   }
 
-  if (!raceScript || raceScript.trim() === '') return { segments: [], measurements: [] };
+  if (!raceScript || raceScript.trim() === '') return { segments: [], measurements: [], cdpStartWallMs: null };
 
   // SECURITY: Race scripts execute with the full privileges of this Node.js
   // process. Only run scripts you trust — this is equivalent to `node <file>`.
@@ -818,7 +826,7 @@ async function runMarkerMode(page, context, config, barriers, isParallel, shared
   }
 
   await page.waitForTimeout(POST_RACE_WAIT_MS);
-  return { segments, measurements };
+  return { segments, measurements, cdpStartWallMs };
 }
 
 // --- Network & CPU throttling ---
@@ -968,12 +976,14 @@ async function runBrowserRecording(config, barriers, isParallel, sharedState, op
     page.setDefaultTimeout(PAGE_TIMEOUT_MS);
     page.setDefaultNavigationTimeout(PAGE_TIMEOUT_MS);
 
+    const cdpCalibrator = await createCdpCalibrator(page);
+
     await setupClickTracker(context, recordingStartTime);
     await applyThrottling(page, throttle, id);
 
     const metricsCollector = await startProfiling(page, browser, id);
 
-    const result = await runMarkerMode(page, context, config, barriers, isParallel, sharedState, recordingStartTime, noOverlay, metricsCollector);
+    const result = await runMarkerMode(page, context, config, barriers, isParallel, sharedState, recordingStartTime, noOverlay, metricsCollector, cdpCalibrator);
     const markerSegments = result?.segments || [];
     const measurements = result?.measurements || [];
 
@@ -981,6 +991,8 @@ async function runBrowserRecording(config, barriers, isParallel, sharedState, op
 
     const clickEvents = await getClickEvents(page);
     const adjustedClicks = remapClickTimestamps(clickEvents, markerSegments);
+
+    await cdpCalibrator.stop();
 
     await context.close();
     const wallClockDuration = (Date.now() - contextCreationStart) / 1000;
@@ -1003,15 +1015,22 @@ async function runBrowserRecording(config, barriers, isParallel, sharedState, op
 
     const videoFile = getMostRecentVideo(outputDir);
 
-    // Build-time cue calibration: detect green cue PTS via ffprobe so the
-    // player works on file:// where canvas pixel reading is blocked.
+    // Build-time calibration: prefer CDP screencast timestamp mapping,
+    // fall back to ffprobe cue detection for older/headless environments.
     let calibratedStart = null;
-    if (videoFile && markerSegments.length > 0) {
+    const cdpStart = result?.cdpStartWallMs;
+    if (cdpStart != null && cdpCalibrator.hasData) {
+      calibratedStart = cdpCalibrator.wallClockToPts(cdpStart);
+      if (calibratedStart != null) {
+        console.error(`[${id}] CDP calibrated start PTS: ${calibratedStart.toFixed(3)}s (${cdpCalibrator.sampleCount} samples)`);
+      }
+    }
+    if (calibratedStart == null && videoFile && markerSegments.length > 0) {
       try {
         const cueData = detectCueFrames(path.join(outputDir, videoFile));
         calibratedStart = cueTimings(cueData.startCues, cueData.endCues, cueData.frameDuration).calibratedStart;
         if (calibratedStart != null) {
-          console.error(`[${id}] Calibrated start PTS: ${calibratedStart.toFixed(3)}s`);
+          console.error(`[${id}] Cue-fallback calibrated start PTS: ${calibratedStart.toFixed(3)}s`);
         }
       } catch (e) { console.error(`[${id}] Build-time calibration skipped: ${e.message}`); }
     }

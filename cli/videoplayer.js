@@ -413,9 +413,10 @@ function buildPlayerScript(config) {
   }
 
   // --- Canvas-based PTS calibration ---
-  // Detects the green calibration cue (30px square, top-left corner) by sampling
-  // a 10×10 region from the center of the cue via the Canvas API.
-  var CUE_DETECT_SIZE = 10;
+  // Detects the green calibration cue (4px square, top-left corner) by sampling
+  // a 4×4 region via the Canvas API. Only used as a fallback when build-time
+  // CDP calibration is unavailable.
+  var CUE_DETECT_SIZE = 4;
   var FRAME_DT = 0.04;       // 25fps PTS interval
 
   function seekVideoTo(video, time) {
@@ -476,7 +477,7 @@ function buildPlayerScript(config) {
     canvas.height = CUE_DETECT_SIZE;
     var ctx = canvas.getContext('2d', { willReadFrequently: true });
     var endT = Math.min(video.duration || 0, scanTo || video.duration || 0);
-    var srcOffset = 5;
+    var srcOffset = 0;
 
     function checkFrame(t) {
       return seekVideoTo(video, t).then(function() {
@@ -485,9 +486,9 @@ function buildPlayerScript(config) {
       });
     }
 
-    // Coarse step = 0.16s (4 frames). CSS animation cue produces 7+ frames
-    // (0.24s+ PTS span), so 0.16s steps guarantee at least one hit.
-    var coarseStep = FRAME_DT * 4;
+    // Coarse step = 0.08s (2 frames). With 80ms cue duration (2 frames),
+    // 0.08s steps guarantee at least one hit.
+    var coarseStep = FRAME_DT * 2;
     var t = 0;
     function coarseScan() {
       if (t > endT) return Promise.resolve(null);
