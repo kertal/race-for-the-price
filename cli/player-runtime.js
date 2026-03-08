@@ -810,11 +810,30 @@ function stepFrame(delta) {
 document.getElementById('prevFrame').addEventListener('click', () => stepFrame(-STEP));
 document.getElementById('nextFrame').addEventListener('click', () => stepFrame(STEP));
 
+function goToStart() {
+  if (playing) { videos.forEach(v => v?.pause()); playing = false; playBtn.textContent = '\u25B6'; }
+  seekAll(activeClip ? activeClip.start : 0);
+  scrubber.value = 0;
+  updateTimeDisplay();
+}
+
+function goToEnd() {
+  if (playing) { videos.forEach(v => v?.pause()); playing = false; playBtn.textContent = '\u25B6'; }
+  seekAll(activeClip ? activeClip.end : duration);
+  scrubber.value = 1000;
+  updateTimeDisplay();
+}
+
+document.getElementById('goStart').addEventListener('click', goToStart);
+document.getElementById('goEnd').addEventListener('click', goToEnd);
+
 document.addEventListener('keydown', (e) => {
   if (e.target.tagName === 'SELECT') return;
   if (e.key === 'ArrowLeft') { e.preventDefault(); stepFrame(-STEP); }
   else if (e.key === 'ArrowRight') { e.preventDefault(); stepFrame(STEP); }
   else if (e.key === ' ') { e.preventDefault(); playBtn.click(); }
+  else if (e.key === 'Home') { e.preventDefault(); goToStart(); }
+  else if (e.key === 'End') { e.preventDefault(); goToEnd(); }
 });
 
 // --- Initial clip seek ---
