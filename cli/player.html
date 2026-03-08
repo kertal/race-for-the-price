@@ -73,35 +73,20 @@
     color: #777;
     padding-bottom: 0.5rem;
   }
-  .race-info {
-    max-width: 900px;
-    width: 100%;
-    padding: 0.3rem 1.5rem 0.8rem;
+  .race-info, .machine-info {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
+    gap: 0.1rem 1.5rem;
+    font-size: 0.8rem;
+    color: #ccc;
+    padding: 0.1rem 0;
   }
-  .race-info table {
-    border-collapse: collapse;
-    font-size: 0.85rem;
+  .info-item {
+    white-space: nowrap;
   }
-  .race-info td {
-    padding: 0.15rem 0.8rem 0.15rem 0;
-  }
-  .race-info td:first-child {
-    color: #888;
-  }
-  .machine-info {
-    max-width: 900px;
-    width: 100%;
-    padding: 0 1.5rem 0.8rem;
-  }
-  .machine-info table {
-    border-collapse: collapse;
-    font-size: 0.85rem;
-  }
-  .machine-info td {
-    padding: 0.15rem 0.8rem 0.15rem 0;
-  }
-  .machine-info td:first-child {
-    color: #888;
+  .info-label {
+    color: #666;
+    margin-right: 0.4rem;
   }
   .errors {
     max-width: 900px;
@@ -248,15 +233,33 @@
   .section {
     max-width: 900px;
     width: 100%;
-    padding: 0.5rem 1.5rem 1rem;
+    padding: 0.5rem 1.5rem 0.5rem;
   }
-  .section h2 {
+  .section > summary {
+    cursor: pointer;
+    list-style: none;
+  }
+  .section > summary::-webkit-details-marker { display: none; }
+  .section > summary::before {
+    content: "\25B6  ";
+    font-size: 0.65rem;
+    color: #888;
+    display: inline-block;
+    transition: transform 0.2s;
+  }
+  .section[open] > summary::before {
+    transform: rotate(90deg);
+  }
+  .section > summary h2 {
+    display: inline;
     font-family: Georgia, serif;
     color: #d4af37;
     font-size: 1.1rem;
-    margin-bottom: 0.3rem;
     text-transform: uppercase;
     letter-spacing: 0.1em;
+  }
+  .section-body {
+    padding-top: 0.3rem;
   }
   .profile-note {
     color: #777;
@@ -359,7 +362,7 @@
   .profile-collapsible summary::-webkit-details-marker { display: none; }
   .profile-collapsible summary::before {
     content: "\25B6  ";
-    font-size: 0.7rem;
+    font-size: 0.65rem;
     color: #888;
     transition: transform 0.2s;
     display: inline-block;
@@ -619,23 +622,138 @@
 <h1>Race for the Prize</h1>
 <div class="winner-banner">{{winnerBanner}}</div>
 {{videoSourceNote}}
-{{raceInfo}}
-{{machineInfo}}
 {{errors}}
 {{modeToggle}}
 
 {{playerSection}}
 
-<div class="section">
-  <h2>Results</h2>
+<details class="section" open>
+  <summary><h2>Results</h2></summary>
+  <div class="section-body">
 {{results}}
-</div>
+  </div>
+</details>
 
 {{profile}}
 
 {{files}}
 
+<details class="section">
+  <summary><h2>Run Info</h2></summary>
+  <div class="section-body">
+    {{raceInfo}}
+    {{machineInfo}}
+  </div>
+</details>
+
 <div class="checkered-bar"></div>
+
+<template id="build-info-item"><span class="info-item"><span class="info-label">{{label}}</span> {{value}}</span></template>
+
+<template id="build-profile-row">
+<div class="profile-row">
+  <span class="profile-racer" style="color: {{color}}">{{name}}</span>
+  <span class="profile-bar-track">
+    <span class="profile-bar-fill" style="width: {{barPct}}%; background: {{color}}"></span>
+  </span>
+  <span class="profile-value">{{value}}</span>
+  {{medal}}
+</div>
+</template>
+
+<template id="build-profile-metric">
+<div class="profile-metric">
+  <div class="profile-metric-name" {{titleAttr}}>{{name}}</div>
+  {{desc}}{{rows}}
+</div>
+</template>
+
+<template id="build-file-link"><a href="{{href}}" {{attrs}}>{{text}}</a></template>
+
+<template id="build-racer-name"><span class="racer-name" style="color: {{color}}">{{name}}</span></template>
+
+<template id="build-player-section">
+<div class="player-container" id="playerContainer">
+{{videoElements}}
+</div>
+{{mergedVideoElement}}
+{{debugPanel}}
+
+<div class="controls">
+  <div class="controls-row">
+    <button class="frame-btn" id="prevFrame" title="-0.1s (&larr;)">&laquo;</button>
+    <button class="play-btn" id="playBtn">&#x25B6;</button>
+    <button class="frame-btn" id="nextFrame" title="+0.1s (&rarr;)">&raquo;</button>
+    <input type="range" class="scrubber" id="scrubber" min="0" max="1000" value="0">
+  </div>
+  <span class="time-display" id="timeDisplay">0:00.000 / 0:00.000</span>
+  <span class="frame-display" id="frameDisplay">0.0s</span>
+  <select class="speed-select" id="speedSelect">
+    <option value="0.25">0.25x</option>
+    <option value="0.5">0.5x</option>
+    <option value="1" selected>1x</option>
+    <option value="2">2x</option>
+  </select>
+  <button class="export-btn" id="exportBtn" title="Export side-by-side video">Export</button>
+</div>
+</template>
+
+<template id="build-debug-row">
+<div class="debug-row" data-debug-idx="{{displayIdx}}">
+  {{racerNameSpan}}
+  <span class="start-info" id="debugStart{{displayIdx}}">start: {{startVal}}s (+0f)</span>
+  <button class="debug-frame-btn" data-idx="{{displayIdx}}" data-delta="-5">-5f</button>
+  <button class="debug-frame-btn" data-idx="{{displayIdx}}" data-delta="-1">-1f</button>
+  <button class="debug-frame-btn" data-idx="{{displayIdx}}" data-delta="1">+1f</button>
+  <button class="debug-frame-btn" data-idx="{{displayIdx}}" data-delta="5">+5f</button>
+</div>
+</template>
+
+<template id="build-debug-stats-row">
+<div class="debug-stats-row" id="debugStatsRow{{displayIdx}}">
+  {{racerNameSpan}}
+  <span>duration: &mdash;</span>
+  <span>frames: &mdash; dropped: &mdash;</span>
+  <span>resolution: &mdash;</span>
+</div>
+</template>
+
+<template id="build-debug-frame-row">
+<div class="debug-stats-row" id="debugFrameRow{{displayIdx}}">
+  {{racerNameSpan}}
+  <span>&mdash;</span>
+</div>
+</template>
+
+<template id="build-debug-timing-racer">
+<div class="debug-timing-racer" id="debugTimingRacer{{displayIdx}}">
+  {{racerNameSpan}}
+  <div class="debug-timing-events" id="debugTimingEvents{{displayIdx}}"></div>
+</div>
+</template>
+
+<template id="build-debug-panel">
+<div class="debug-panel" id="debugPanel">
+  <h3>DEBUG: Clip Start Calibration</h3>{{debugRows}}
+  <div class="debug-stats" id="debugStats">
+    <div class="debug-stats-header">VIDEO INFO</div>
+{{statsRows}}
+  </div>
+  <div class="debug-frames" id="debugFrames">
+    <div class="debug-stats-header">FRAME POSITIONS</div>
+{{frameRows}}
+  </div>
+  <div class="debug-timing" id="debugTiming">
+    <div class="debug-stats-header">TIMING EVENTS</div>
+{{timingRows}}
+  </div>
+  <div class="debug-footer">
+    <span>1 frame &asymp; 0.040s (assuming 25fps recording)</span>
+    <button class="debug-action-btn" id="debugCopyJson">Copy JSON</button>
+    <button class="debug-action-btn" id="debugResetAll">Reset All</button>
+  </div>
+</div>
+</template>
 
 <template id="tmpl-export-overlay">
   <div class="export-overlay">

@@ -2,13 +2,24 @@
  * player-sections.js — Build-time HTML section builders for the race player.
  *
  * Each function returns an HTML string (or '' if nothing to show).
- * Used by videoplayer.js to populate {{placeholder}} slots in player.html.
+ * HTML structures are defined as <template id="build-*"> elements in player.html;
+ * videoplayer.js extracts them at load time and passes them via setTemplates().
  */
 
 import { PROFILE_METRICS, categoryDescriptions } from './profile-analysis.js';
 import { formatPlatform } from './summary.js';
 
 export const RACER_CSS_COLORS = ['#e74c3c', '#3498db', '#27ae60', '#f1c40f', '#9b59b6'];
+
+let T = {};
+
+/** Store build-time templates extracted from player.html. */
+export function setTemplates(templates) { T = templates; }
+
+/** Replace {{key}} placeholders in a template string with data values. */
+export function render(tmpl, data) {
+  return tmpl.replace(/\{\{(\w+)\}\}/g, (_, key) => data[key] ?? '');
+}
 
 /** Escape a string for safe embedding in HTML text/attribute contexts. */
 export function escHtml(str) {
@@ -26,6 +37,19 @@ export function sortByValue(racers, getValue) {
     });
 }
 
+// ---------------------------------------------------------------------------
+// Internal helpers
+// ---------------------------------------------------------------------------
+
+function infoItem(label, value) {
+  return render(T['info-item'], { label, value });
+}
+
+function racerName(racers, origIdx) {
+  const color = RACER_CSS_COLORS[origIdx % RACER_CSS_COLORS.length];
+  return render(T['racer-name'], { color, name: escHtml(racers[origIdx]) });
+}
+
 /** Build sorted bar-chart HTML rows for a single metric. */
 function buildMetricRowsHtml(entries, winner, formatDelta) {
   const nonNullVals = entries.filter(e => e.val !== null).map(e => e.val);
@@ -39,15 +63,13 @@ function buildMetricRowsHtml(entries, winner, formatDelta) {
     if (entry.val !== null && bestVal !== null && entry.val !== bestVal) {
       delta = `<span class="profile-delta">(+${formatDelta(entry.val - bestVal)})</span>`;
     }
-    html += `
-        <div class="profile-row">
-          <span class="profile-racer" style="color: ${color}">${escHtml(entry.name)}</span>
-          <span class="profile-bar-track">
-            <span class="profile-bar-fill" style="width: ${barPct}%; background: ${color}"></span>
-          </span>
-          <span class="profile-value">${escHtml(entry.formatted)}${delta}</span>
-          ${winner === entry.name ? '<span class="profile-medal">&#127942;</span>' : ''}
-        </div>`;
+    html += render(T['profile-row'], {
+      color,
+      name: escHtml(entry.name),
+      barPct,
+      value: escHtml(entry.formatted) + delta,
+      medal: winner === entry.name ? '<span class="profile-medal">&#127942;</span>' : '',
+    });
   }
   return html;
 }
@@ -59,7 +81,7 @@ function buildMetricRowsHtml(entries, winner, formatDelta) {
 export function buildRunNavHtml(runNav) {
   if (!runNav) return '';
   const { currentRun, totalRuns, pathPrefix } = runNav;
-  let html = `<div class="run-nav">`;
+  let html = '<div class="run-nav">';
   for (let i = 1; i <= totalRuns; i++) {
     const isCurrent = currentRun === i;
     const cls = isCurrent ? 'run-nav-btn active' : 'run-nav-btn';
@@ -76,41 +98,42 @@ export function buildRunNavHtml(runNav) {
   } else {
     html += `<a class="${medianCls}" href="${escHtml(pathPrefix)}index.html">Median</a>`;
   }
-  html += `</div>`;
+  html += '</div>';
   return html;
 }
 
 export function buildRaceInfoHtml(summary) {
   const { racers, settings, timestamp } = summary;
-  const rows = [];
-  if (timestamp) rows.push(`<tr><td>Date</td><td>${escHtml(new Date(timestamp).toISOString())}</td></tr>`);
-  racers.forEach((r, i) => rows.push(`<tr><td>Racer ${i + 1}</td><td>${escHtml(r)}</td></tr>`));
+  const items = [];
+  if (timestamp) {
+    items.push(infoItem('Timestamp', escHtml(new Date(timestamp).toISOString())));
+  }
+  racers.forEach((r, i) => items.push(infoItem(`Racer ${i + 1}`, escHtml(r))));
   if (settings) {
     const mode = settings.parallel === false ? 'sequential' : 'parallel';
-    rows.push(`<tr><td>Mode</td><td>${mode}</td></tr>`);
-    if (settings.network && settings.network !== 'none') rows.push(`<tr><td>Network</td><td>${escHtml(settings.network)}</td></tr>`);
-    if (settings.cpuThrottle && settings.cpuThrottle > 1) rows.push(`<tr><td>CPU Throttle</td><td>${settings.cpuThrottle}x</td></tr>`);
-    if (settings.format && settings.format !== 'webm') rows.push(`<tr><td>Format</td><td>${escHtml(settings.format)}</td></tr>`);
-    if (settings.headless) rows.push(`<tr><td>Headless</td><td>yes</td></tr>`);
-    if (settings.runs && settings.runs > 1) rows.push(`<tr><td>Runs</td><td>${settings.runs}</td></tr>`);
+    items.push(infoItem('Mode', mode));
+    if (settings.network && settings.network !== 'none') items.push(infoItem('Network', escHtml(settings.network)));
+    if (settings.cpuThrottle && settings.cpuThrottle > 1) items.push(infoItem('CPU Throttle', `${settings.cpuThrottle}x`));
+    if (settings.format && settings.format !== 'webm') items.push(infoItem('Format', escHtml(settings.format)));
+    if (settings.headless) items.push(infoItem('Headless', 'yes'));
+    if (settings.runs && settings.runs > 1) items.push(infoItem('Runs', settings.runs));
   }
-  if (rows.length === 0) return '';
-  return `<div class="race-info"><table>${rows.join('')}</table></div>`;
+  if (items.length === 0) return '';
+  return `<div class="race-info">${items.join('')}</div>`;
 }
 
 export function buildMachineInfoHtml(machineInfo) {
   if (!machineInfo) return '';
-  const rows = [];
-  rows.push(`<tr><td>OS</td><td>${escHtml(formatPlatform(machineInfo.platform))} ${escHtml(machineInfo.osRelease)} (${escHtml(machineInfo.arch)})</td></tr>`);
-  rows.push(`<tr><td>CPU</td><td>${escHtml(machineInfo.cpuModel)} (${machineInfo.cpuCores} cores)</td></tr>`);
+  const items = [];
+  items.push(infoItem('OS', `${escHtml(formatPlatform(machineInfo.platform))} ${escHtml(machineInfo.osRelease)} (${escHtml(machineInfo.arch)})`));
+  items.push(infoItem('CPU', `${escHtml(machineInfo.cpuModel)} (${machineInfo.cpuCores} cores)`));
   if (machineInfo.totalMemoryMB) {
-    const memGB = (machineInfo.totalMemoryMB / 1024).toFixed(1);
-    rows.push(`<tr><td>Memory</td><td>${memGB} GB</td></tr>`);
+    items.push(infoItem('Memory', `${(machineInfo.totalMemoryMB / 1024).toFixed(1)} GB`));
   }
   if (machineInfo.nodeVersion) {
-    rows.push(`<tr><td>Node.js</td><td>${escHtml(machineInfo.nodeVersion)}</td></tr>`);
+    items.push(infoItem('Node.js', escHtml(machineInfo.nodeVersion)));
   }
-  return `<div class="machine-info"><table>${rows.join('')}</table></div>`;
+  return `<div class="machine-info">${items.join('')}</div>`;
 }
 
 export function buildErrorsHtml(errors) {
@@ -125,27 +148,24 @@ export function buildResultsHtml(comparisons, racers, clickCounts) {
       const r = comp.racers[i];
       return { val: r ? r.duration : null, formatted: r ? `${r.duration.toFixed(3)}s` : '-' };
     });
-    html += `<div class="profile-metric">
-        <div class="profile-metric-name">${escHtml(comp.name)}</div>${buildMetricRowsHtml(sorted, comp.winner, v => `${v.toFixed(3)}s`)}</div>\n`;
+    html += render(T['profile-metric'], {
+      titleAttr: '',
+      name: escHtml(comp.name),
+      desc: '',
+      rows: buildMetricRowsHtml(sorted, comp.winner, v => `${v.toFixed(3)}s`),
+    }) + '\n';
   }
   if (clickCounts) {
     const total = racers.reduce((sum, r) => sum + (clickCounts[r] || 0), 0);
     if (total > 0) {
       const maxCount = Math.max(...racers.map(r => clickCounts[r] || 0));
-      html += `<div class="profile-metric">
-        <div class="profile-metric-name">Clicks</div>${racers.map((r, i) => {
+      const rows = racers.map((r, i) => {
         const count = clickCounts[r] || 0;
         const barPct = maxCount > 0 ? Math.round((count / maxCount) * 100) : 0;
         const color = RACER_CSS_COLORS[i % RACER_CSS_COLORS.length];
-        return `
-        <div class="profile-row">
-          <span class="profile-racer" style="color: ${color}">${escHtml(r)}</span>
-          <span class="profile-bar-track">
-            <span class="profile-bar-fill" style="width: ${barPct}%; background: ${color}"></span>
-          </span>
-          <span class="profile-value">${count}</span>
-        </div>`;
-      }).join('')}</div>\n`;
+        return render(T['profile-row'], { color, name: escHtml(r), barPct, value: String(count), medal: '' });
+      }).join('');
+      html += render(T['profile-metric'], { titleAttr: '', name: 'Clicks', desc: '', rows }) + '\n';
     }
   }
   return html;
@@ -156,8 +176,9 @@ export function buildProfileHtml(profileComparison, racers) {
   const { measured, total } = profileComparison;
   if (measured.comparisons.length === 0 && total.comparisons.length === 0) return '';
 
-  let html = `<div class="section">
-  <h2>Performance Profile</h2>
+  let html = `<details class="section" open>
+  <summary><h2>Performance Profile</h2></summary>
+  <div class="section-body">
   <p class="profile-note">Lower values are better for all metrics. Hover over metric names for details.</p>\n`;
 
   const scopes = [
@@ -183,11 +204,14 @@ export function buildProfileHtml(profileComparison, racers) {
       for (const comp of comps) {
         const sorted = sortByValue(racers, i => ({ val: comp.values[i], formatted: comp.formatted[i] }));
         const metricDef = PROFILE_METRICS[comp.key];
-        const formatDelta = metricDef.format;
+        const formatDeltaFn = metricDef.format;
         const desc = metricDef.description || '';
-        html += `<div class="profile-metric">
-        <div class="profile-metric-name" ${desc ? `title="${escHtml(desc)}"` : ''}>${escHtml(comp.name)}${desc ? ' <span class="profile-info-icon">&#9432;</span>' : ''}</div>
-        ${desc ? `<div class="profile-metric-desc">${escHtml(desc)}</div>` : ''}${buildMetricRowsHtml(sorted, comp.winner, formatDelta)}</div>\n`;
+        html += render(T['profile-metric'], {
+          titleAttr: desc ? `title="${escHtml(desc)}"` : '',
+          name: escHtml(comp.name) + (desc ? ' <span class="profile-info-icon">&#9432;</span>' : ''),
+          desc: desc ? `<div class="profile-metric-desc">${escHtml(desc)}</div>` : '',
+          rows: buildMetricRowsHtml(sorted, comp.winner, formatDeltaFn),
+        }) + '\n';
       }
     }
     if (scope.section.overallWinner === 'tie') {
@@ -201,7 +225,7 @@ export function buildProfileHtml(profileComparison, racers) {
     }
   }
 
-  html += `</div>`;
+  html += `</div>\n</details>`;
   return html;
 }
 
@@ -211,124 +235,67 @@ export function buildFilesHtml(racers, videoFiles, options) {
   const order = placementOrder || racers.map((_, i) => i);
 
   order.forEach(i => {
-    if (videoFiles[i]) links.push(`<a href="${escHtml(videoFiles[i])}">${escHtml(racers[i])} (race)</a>`);
+    if (videoFiles[i]) links.push(render(T['file-link'], { href: escHtml(videoFiles[i]), attrs: '', text: `${escHtml(racers[i])} (race)` }));
   });
   if (fullVideoFiles) {
     order.forEach(i => {
-      if (fullVideoFiles[i]) links.push(`<a href="${escHtml(fullVideoFiles[i])}">${escHtml(racers[i])} (full)</a>`);
+      if (fullVideoFiles[i]) links.push(render(T['file-link'], { href: escHtml(fullVideoFiles[i]), attrs: '', text: `${escHtml(racers[i])} (full)` }));
     });
   }
   if (mergedVideoFile) {
-    links.push(`<a href="${escHtml(mergedVideoFile)}">side-by-side</a>`);
+    links.push(render(T['file-link'], { href: escHtml(mergedVideoFile), attrs: '', text: 'side-by-side' }));
   }
   if (altFormat && altFiles) {
     order.forEach(i => {
-      if (altFiles[i]) links.push(`<a href="${escHtml(altFiles[i])}" download>${escHtml(racers[i])} (.${escHtml(altFormat)})</a>`);
+      if (altFiles[i]) links.push(render(T['file-link'], { href: escHtml(altFiles[i]), attrs: 'download', text: `${escHtml(racers[i])} (.${escHtml(altFormat)})` }));
     });
   }
   if (traceFiles) {
     order.forEach(i => {
-      if (traceFiles[i]) links.push(`<a href="${escHtml(traceFiles[i])}" title="Open in chrome://tracing or ui.perfetto.dev">${escHtml(racers[i])} (profile)</a>`);
+      if (traceFiles[i]) links.push(render(T['file-link'], { href: escHtml(traceFiles[i]), attrs: 'title="Open in chrome://tracing or ui.perfetto.dev"', text: `${escHtml(racers[i])} (profile)` }));
     });
   }
 
   if (links.length === 0) return '';
 
-  return `<div class="section">
-  <h2>Files</h2>
-  <div class="file-links">
-    ${links.join('\n    ')}
+  return `<details class="section">
+  <summary><h2>Files</h2></summary>
+  <div class="section-body">
+    <div class="file-links">
+      ${links.join('\n      ')}
+    </div>
   </div>
-</div>`;
+</details>`;
 }
 
 export function buildDebugPanelHtml(racers, placementOrder, clipTimes) {
   const orderedClipTimes = placementOrder.map(i => clipTimes[i] || null);
 
-  function racerNameSpan(origIdx) {
-    const color = RACER_CSS_COLORS[origIdx % RACER_CSS_COLORS.length];
-    return `<span class="racer-name" style="color: ${color}">${escHtml(racers[origIdx])}</span>`;
-  }
-
-  let rows = '';
-  placementOrder.forEach((origIdx, displayIdx) => {
+  const debugRows = placementOrder.map((origIdx, displayIdx) => {
     const clip = orderedClipTimes[displayIdx];
     const startVal = clip && Number.isFinite(clip.start) ? clip.start.toFixed(3) : '0.000';
-    rows += `
-    <div class="debug-row" data-debug-idx="${displayIdx}">
-      ${racerNameSpan(origIdx)}
-      <span class="start-info" id="debugStart${displayIdx}">start: ${startVal}s (+0f)</span>
-      <button class="debug-frame-btn" data-idx="${displayIdx}" data-delta="-5">-5f</button>
-      <button class="debug-frame-btn" data-idx="${displayIdx}" data-delta="-1">-1f</button>
-      <button class="debug-frame-btn" data-idx="${displayIdx}" data-delta="1">+1f</button>
-      <button class="debug-frame-btn" data-idx="${displayIdx}" data-delta="5">+5f</button>
-    </div>`;
-  });
+    return render(T['debug-row'], { displayIdx, racerNameSpan: racerName(racers, origIdx), startVal });
+  }).join('');
 
   const statsRows = placementOrder.map((origIdx, displayIdx) =>
-    `    <div class="debug-stats-row" id="debugStatsRow${displayIdx}">
-      ${racerNameSpan(origIdx)}
-      <span>duration: \u2014</span>
-      <span>frames: \u2014 dropped: \u2014</span>
-      <span>resolution: \u2014</span>
-    </div>`).join('\n');
+    render(T['debug-stats-row'], { displayIdx, racerNameSpan: racerName(racers, origIdx) })
+  ).join('\n');
 
   const frameRows = placementOrder.map((origIdx, displayIdx) =>
-    `    <div class="debug-stats-row" id="debugFrameRow${displayIdx}">
-      ${racerNameSpan(origIdx)}
-      <span>\u2014</span>
-    </div>`).join('\n');
+    render(T['debug-frame-row'], { displayIdx, racerNameSpan: racerName(racers, origIdx) })
+  ).join('\n');
 
   const timingRows = placementOrder.map((origIdx, displayIdx) =>
-    `    <div class="debug-timing-racer" id="debugTimingRacer${displayIdx}">
-      ${racerNameSpan(origIdx)}
-      <div class="debug-timing-events" id="debugTimingEvents${displayIdx}"></div>
-    </div>`).join('\n');
+    render(T['debug-timing-racer'], { displayIdx, racerNameSpan: racerName(racers, origIdx) })
+  ).join('\n');
 
-  return `<div class="debug-panel" id="debugPanel">
-  <h3>DEBUG: Clip Start Calibration</h3>${rows}
-  <div class="debug-stats" id="debugStats">
-    <div class="debug-stats-header">VIDEO INFO</div>
-${statsRows}
-  </div>
-  <div class="debug-frames" id="debugFrames">
-    <div class="debug-stats-header">FRAME POSITIONS</div>
-${frameRows}
-  </div>
-  <div class="debug-timing" id="debugTiming">
-    <div class="debug-stats-header">TIMING EVENTS</div>
-${timingRows}
-  </div>
-  <div class="debug-footer">
-    <span>1 frame &#8776; 0.040s (assuming 25fps recording)</span>
-    <button class="debug-action-btn" id="debugCopyJson">Copy JSON</button>
-    <button class="debug-action-btn" id="debugResetAll">Reset All</button>
-  </div>
-</div>`;
+  return render(T['debug-panel'], { debugRows, statsRows, frameRows, timingRows });
 }
 
 export function buildPlayerSectionHtml(videoElements, mergedVideoElement, debugPanelHtml) {
-  return `<div class="player-container" id="playerContainer">
-${videoElements}
-</div>
-${mergedVideoElement}
-${debugPanelHtml || ''}
-
-<div class="controls">
-  <div class="controls-row">
-    <button class="frame-btn" id="prevFrame" title="-0.1s (\u2190)">\u25C0\u25C0</button>
-    <button class="play-btn" id="playBtn">\u25B6</button>
-    <button class="frame-btn" id="nextFrame" title="+0.1s (\u2192)">\u25B6\u25B6</button>
-    <input type="range" class="scrubber" id="scrubber" min="0" max="1000" value="0">
-  </div>
-  <span class="time-display" id="timeDisplay">0:00.000 / 0:00.000</span>
-  <span class="frame-display" id="frameDisplay">0.0s</span>
-  <select class="speed-select" id="speedSelect">
-    <option value="0.25">0.25x</option>
-    <option value="0.5">0.5x</option>
-    <option value="1" selected>1x</option>
-    <option value="2">2x</option>
-  </select>
-  <button class="export-btn" id="exportBtn" title="Export side-by-side video">Export</button>
-</div>`;
+  return render(T['player-section'], {
+    videoElements,
+    mergedVideoElement: mergedVideoElement || '',
+    debugPanel: debugPanelHtml || '',
+  });
 }

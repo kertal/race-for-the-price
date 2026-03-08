@@ -15,6 +15,8 @@ import { getPlacementOrder } from './summary.js';
 import {
   RACER_CSS_COLORS,
   escHtml,
+  render,
+  setTemplates,
   buildRunNavHtml,
   buildRaceInfoHtml,
   buildMachineInfoHtml,
@@ -27,16 +29,21 @@ import {
 } from './player-sections.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const TEMPLATE = fs.readFileSync(path.join(__dirname, 'player.html'), 'utf-8');
+const RAW_HTML = fs.readFileSync(path.join(__dirname, 'player.html'), 'utf-8');
 const RUNTIME = fs.readFileSync(path.join(__dirname, 'player-runtime.js'), 'utf-8');
 
-// ---------------------------------------------------------------------------
-// Template renderer — replaces {{key}} placeholders with values
-// ---------------------------------------------------------------------------
-
-function render(template, data) {
-  return template.replace(/\{\{(\w+)\}\}/g, (_, key) => data[key] ?? '');
+// Extract build-time templates (build-*) from HTML and strip them from the main template
+function extractBuildTemplates(html) {
+  const templates = {};
+  const cleaned = html.replace(/<template id="build-([^"]+)">([\s\S]*?)<\/template>\s*/g, (_, id, content) => {
+    templates[id] = content.trim();
+    return '';
+  });
+  return { mainTemplate: cleaned, templates };
 }
+
+const { mainTemplate: TEMPLATE, templates: BUILD_TEMPLATES } = extractBuildTemplates(RAW_HTML);
+setTemplates(BUILD_TEMPLATES);
 
 // ---------------------------------------------------------------------------
 // Player Script Builder — reads player-runtime.js and injects config
