@@ -144,7 +144,7 @@ describe('calibration integration', () => {
       const scripts = document.querySelectorAll('script');
       for (const s of scripts) {
         if (s.textContent.includes('needsCalibration')) {
-          const hasCheck = s.textContent.includes("clipTimes.some(function(ct) { return ct && ct.calibratedStart == null; })");
+          const hasCheck = s.textContent.includes("clipTimes.some(ct => ct && ct.calibratedStart == null)");
           return { hasCheck };
         }
       }
@@ -201,9 +201,9 @@ describe('calibration integration', () => {
             hasSecurityCheck: s.textContent.includes("e.name === 'SecurityError'"),
             hasTaintedCheck: s.textContent.includes("e.message.indexOf('tainted')"),
             hasThrow: s.textContent.includes('throw e'),
-            hasBlobFn: s.textContent.includes('function toBlobVideo'),
-            hasScanWithBlob: s.textContent.includes('scanWithBlob'),
-            hasXhr: s.textContent.includes('XMLHttpRequest'),
+            hasBlobFn: s.textContent.includes('async function toBlobVideo'),
+            hasFetchFallback: s.textContent.includes('fetch('),
+            hasBlobUrl: s.textContent.includes('_blobUrl'),
             hasCreateObjectURL: s.textContent.includes('createObjectURL'),
           };
         }
@@ -216,8 +216,8 @@ describe('calibration integration', () => {
     expect(result.hasTaintedCheck).toBe(true);
     expect(result.hasThrow).toBe(true);
     expect(result.hasBlobFn).toBe(true);
-    expect(result.hasScanWithBlob).toBe(true);
-    expect(result.hasXhr).toBe(true);
+    expect(result.hasFetchFallback).toBe(true);
+    expect(result.hasBlobUrl).toBe(true);
     expect(result.hasCreateObjectURL).toBe(true);
   });
 

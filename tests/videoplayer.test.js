@@ -456,7 +456,7 @@ describe('buildPlayerHtml clipTimes', () => {
     ];
     const html = withClips(clips);
     expect(html).toContain('v.duration * 0.6');
-    expect(html).toContain('var t = 0');
+    expect(html).toContain('for (let t = 0; t <= endT');
   });
 
   it('uses 0.08s coarse step matching fallback cue frame count', () => {
@@ -510,9 +510,8 @@ describe('buildPlayerHtml clipTimes', () => {
     ];
     const html = withClips(clips);
     expect(html).toContain('toBlobVideo');
-    expect(html).toContain('XMLHttpRequest');
+    expect(html).toContain('fetch(');
     expect(html).toContain('createObjectURL');
-    expect(html).toContain('scanWithBlob');
   });
 });
 
@@ -703,7 +702,7 @@ describe('buildPlayerHtml timing events', () => {
     expect(html).toContain('TIMING EVENTS');
     expect(html).toContain('id="debugTimingEvents0"');
     // Should still contain measurement iteration code
-    expect(html).toContain('var measurements = ct.measurements || []');
+    expect(html).toContain('const measurements = ct.measurements || []');
   });
 });
 
@@ -736,7 +735,7 @@ describe('buildPlayerHtml clip alignment', () => {
   it('seekAll uses elapsed-time mapping for per-video positioning', () => {
     const html = withClips([{ start: 1, end: 3 }, { start: 2, end: 3.5 }]);
     // Should compute elapsed from activeClip.start and offset each video individually
-    expect(html).toContain('var elapsed = t - activeClip.start');
+    expect(html).toContain('const elapsed = t - activeClip.start');
     expect(html).toContain('target = ct[i].start + elapsed');
   });
 
@@ -763,9 +762,10 @@ describe('buildPlayerHtml clip alignment', () => {
   it('stepFrame derives position from scrubber for elapsed-time consistency', () => {
     const html = withClips([{ start: 1, end: 3 }, { start: 2, end: 3.5 }]);
     const stepStart = html.indexOf('function stepFrame');
-    // Extract just the stepFrame function body (up to next top-level function)
-    const stepFn = html.slice(stepStart, html.indexOf('\n  function', stepStart + 1));
-    // Should NOT use Math.max.apply on video currentTimes (old approach)
+    // Extract just the stepFrame function body (up to next function boundary)
+    const nextFn = html.indexOf('\nfunction ', stepStart + 1);
+    const endIdx = nextFn > stepStart ? nextFn : stepStart + 500;
+    const stepFn = html.slice(stepStart, endIdx);
     expect(stepFn).not.toContain('Math.max.apply');
     expect(stepFn).toContain('scrubber.value');
   });
@@ -773,7 +773,7 @@ describe('buildPlayerHtml clip alignment', () => {
   it('export seek code uses elapsed-based alignment', () => {
     const html = withClips([{ start: 1, end: 3 }, { start: 2, end: 3.5 }]);
     const exportSection = html.slice(html.indexOf('seekPromises'));
-    expect(exportSection).toContain('var elapsed = startTime - activeClip.start');
+    expect(exportSection).toContain('const elapsed = startTime - activeClip.start');
     expect(exportSection).toContain('target = ct[i].start + elapsed');
   });
 });

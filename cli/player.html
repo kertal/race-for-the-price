@@ -637,6 +637,18 @@
 
 <div class="checkered-bar"></div>
 
+<template id="tmpl-export-overlay">
+  <div class="export-overlay">
+    <div class="export-modal">
+      <h3>Exporting Side-by-Side</h3>
+      <canvas class="export-canvas"></canvas>
+      <div class="export-progress-bar"><div class="export-progress-fill"></div></div>
+      <div class="export-status">Preparing...</div>
+      <div class="export-actions"><button class="export-cancel">Cancel</button></div>
+    </div>
+  </div>
+</template>
+
 {{scriptTag}}
 </body>
 </html>
