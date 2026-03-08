@@ -556,8 +556,9 @@ function buildPlayerScript(config) {
 
     function next() {
       if (idx >= raceVideos.length) return Promise.resolve(anyCalibrated);
-      var v = raceVideos[idx];
-      var ct = clipTimes[idx];
+      var currentIdx = idx;
+      var v = raceVideos[currentIdx];
+      var ct = clipTimes[currentIdx];
       idx++;
       if (!v || !ct || ct._wcStart == null || ct.calibratedStart != null) return next();
 
@@ -588,7 +589,7 @@ function buildPlayerScript(config) {
           }
           return next();
         }).catch(function(e) {
-          console.warn('Canvas calibration failed for video ' + idx + ':', e.message);
+          console.warn('Canvas calibration failed for video ' + currentIdx + ':', e.message);
           return next();
         });
       });
@@ -707,42 +708,65 @@ function buildPlayerScript(config) {
     }
   }
 
-  function attachVideoListeners() {
-    videos.forEach(v => {
-      if (v) v.addEventListener('loadedmetadata', onMeta);
-    });
-    if (primary) {
-      primary.addEventListener('ended', function() {
-        playing = false;
-        playBtn.textContent = '\\u25B6';
-      });
-      primary.addEventListener('timeupdate', function() {
-        // Derive elapsed from primary clip's own start (not minStart) so the
-        // scrubber stays correct when the primary's clip starts after minStart.
-        var adj = getAdjustedClipTimes();
-        var ct = adj || clipTimes;
-        var primaryClip = activeClip && ct && isValidClipEntry(ct[0]) ? ct[0] : null;
-        var elapsed = primaryClip
-          ? (primary.currentTime - primaryClip.start)
-          : (primary.currentTime - clipOffset());
-        // Enforce clip end boundary
-        if (activeClip && elapsed >= clipDuration()) {
-          videos.forEach(v => v && v.pause());
-          seekAll(activeClip.end);
-          playing = false;
-          playBtn.textContent = '\\u25B6';
-          scrubber.value = 1000;
-          updateTimeDisplay();
-          return;
-        }
-        if (duration > 0) {
-          const d = clipDuration();
-          scrubber.value = d > 0 ? (Math.max(0, elapsed) / d) * 1000 : 0;
-          updateTimeDisplay();
-          updateFramePositions();
-        }
-      });
+  function onTimeUpdate() {
+    var adj = getAdjustedClipTimes();
+    var ct = adj || clipTimes;
+    // Compute elapsed as the max across all playing videos so the scrubber
+    // keeps moving even when the primary (often the winner) finishes first.
+    var elapsed = 0;
+    for (var i = 0; i < videos.length; i++) {
+      var v = videos[i];
+      if (!v) continue;
+      var vidClip = activeClip && ct && isValidClipEntry(ct[i]) ? ct[i] : null;
+      var e = vidClip ? (v.currentTime - vidClip.start) : (v.currentTime - clipOffset());
+      if (e > elapsed) elapsed = e;
     }
+    // Enforce clip end boundary
+    if (activeClip && elapsed >= clipDuration()) {
+      videos.forEach(function(v) { v && v.pause(); });
+      seekAll(activeClip.end);
+      playing = false;
+      playBtn.textContent = '\\u25B6';
+      scrubber.value = 1000;
+      updateTimeDisplay();
+      return;
+    }
+    if (duration > 0) {
+      var d = clipDuration();
+      scrubber.value = d > 0 ? (Math.max(0, elapsed) / d) * 1000 : 0;
+      updateTimeDisplay();
+      updateFramePositions();
+    }
+  }
+
+  function onEnded() {
+    if (videos.every(function(vi) { return !vi || vi.paused || vi.ended; })) {
+      playing = false;
+      playBtn.textContent = '\\u25B6';
+    }
+  }
+
+  function detachVideoListeners() {
+    raceVideos.forEach(function(v) {
+      if (v) {
+        v.removeEventListener('timeupdate', onTimeUpdate);
+        v.removeEventListener('ended', onEnded);
+      }
+    });
+    if (mergedVideo) {
+      mergedVideo.removeEventListener('timeupdate', onTimeUpdate);
+      mergedVideo.removeEventListener('ended', onEnded);
+    }
+  }
+
+  function attachVideoListeners() {
+    videos.forEach(function(v) {
+      if (v) {
+        v.addEventListener('loadedmetadata', onMeta);
+        v.addEventListener('timeupdate', onTimeUpdate);
+        v.addEventListener('ended', onEnded);
+      }
+    });
   }
 
   attachVideoListeners();
@@ -781,6 +805,7 @@ function buildPlayerScript(config) {
   function switchToRace() {
     pendingSeek = null;
     if (playing) { videos.forEach(v => v && v.pause()); playing = false; playBtn.textContent = '\\u25B6'; }
+    detachVideoListeners();
     var srcChanged = loadedSrcSet !== 'race';
     if (srcChanged) {
       raceVideos.forEach((v, i) => v.src = raceVideoPaths[i]);
@@ -788,6 +813,7 @@ function buildPlayerScript(config) {
     }
     videos = raceVideos;
     primary = videos[0];
+    attachVideoListeners();
     playerContainer.style.display = 'flex';
     if (mergedContainer) mergedContainer.style.display = 'none';
     if (debugPanel) debugPanel.style.display = 'none';
@@ -812,6 +838,7 @@ function buildPlayerScript(config) {
     if (!fullVideoPaths && !clipTimes) return;
     pendingSeek = null;
     if (playing) { videos.forEach(v => v && v.pause()); playing = false; playBtn.textContent = '\\u25B6'; }
+    detachVideoListeners();
     var srcChanged = false;
     if (fullVideoPaths && loadedSrcSet !== 'full') {
       raceVideos.forEach((v, i) => v.src = fullVideoPaths[i]);
@@ -820,6 +847,7 @@ function buildPlayerScript(config) {
     }
     videos = raceVideos;
     primary = videos[0];
+    attachVideoListeners();
     playerContainer.style.display = 'flex';
     if (mergedContainer) mergedContainer.style.display = 'none';
     if (debugPanel) debugPanel.style.display = 'none';
@@ -844,8 +872,10 @@ function buildPlayerScript(config) {
     if (!mergedVideo) return;
     pendingSeek = null;
     if (playing) { videos.forEach(v => v && v.pause()); playing = false; playBtn.textContent = '\\u25B6'; }
+    detachVideoListeners();
     videos = [mergedVideo];
     primary = mergedVideo;
+    attachVideoListeners();
     playerContainer.style.display = 'none';
     mergedContainer.style.display = 'block';
     if (debugPanel) debugPanel.style.display = 'none';
@@ -863,6 +893,7 @@ function buildPlayerScript(config) {
   function updateDebugStats() {
     var statsEl = document.getElementById('debugStats');
     if (!statsEl || statsEl.offsetParent === null) return;
+    var adjusted = getAdjustedClipTimes();
     for (var i = 0; i < raceVideos.length; i++) {
       var row = document.getElementById('debugStatsRow' + i);
       if (!row) continue;
@@ -878,8 +909,9 @@ function buildPlayerScript(config) {
         droppedText = String(q.droppedVideoFrames);
       }
       var clipDur = '';
-      if (clipTimes && clipTimes[i]) {
-        clipDur = ' (clip: ' + (clipTimes[i].end - clipTimes[i].start).toFixed(2) + 's)';
+      var activeCt = adjusted ? adjusted[i] : (clipTimes ? clipTimes[i] : null);
+      if (activeCt) {
+        clipDur = ' (clip: ' + (activeCt.end - activeCt.start).toFixed(2) + 's)';
       }
       var nameSpan = row.querySelector('.racer-name');
       var nameHtml = nameSpan ? nameSpan.outerHTML : '';
@@ -1020,7 +1052,7 @@ function buildPlayerScript(config) {
     if (newStart >= clipTimes[idx].end) return;
     debugOffsets[idx] = newOffset;
     updateDebugDisplay();
-    // Update active clip and seek
+    updateDebugStats();
     activeClip = resolveAdjustedClip();
     seekAll(activeClip ? activeClip.start : 0);
     scrubber.value = 0;
@@ -1030,6 +1062,7 @@ function buildPlayerScript(config) {
   function switchToDebug() {
     pendingSeek = null;
     if (playing) { videos.forEach(function(v) { v && v.pause(); }); playing = false; playBtn.textContent = '\\u25B6'; }
+    detachVideoListeners();
     var srcChanged = loadedSrcSet !== 'race';
     if (srcChanged) {
       raceVideos.forEach(function(v, i) { v.src = raceVideoPaths[i]; });
@@ -1037,6 +1070,7 @@ function buildPlayerScript(config) {
     }
     videos = raceVideos;
     primary = videos[0];
+    attachVideoListeners();
     playerContainer.style.display = 'flex';
     if (mergedContainer) mergedContainer.style.display = 'none';
     if (debugPanel) debugPanel.style.display = 'block';
@@ -1093,6 +1127,7 @@ function buildPlayerScript(config) {
       if (e.target.id === 'debugResetAll') {
         for (var i = 0; i < debugOffsets.length; i++) debugOffsets[i] = 0;
         updateDebugDisplay();
+        updateDebugStats();
         activeClip = resolveAdjustedClip();
         seekAll(activeClip ? activeClip.start : 0);
         scrubber.value = 0;

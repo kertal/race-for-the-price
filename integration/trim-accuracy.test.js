@@ -49,7 +49,7 @@ function getVideoDuration(videoPath) {
  * the 30x30 top-left crop of the video via ffprobe + signalstats.
  */
 function detectCues(videoPath) {
-  const escaped = videoPath.replace(/\\/g, '/').replace(/[';,[\]=\\ ]/g, ch => '%' + ch.charCodeAt(0).toString(16).padStart(2, '0'));
+  const escaped = videoPath.replace(/\\/g, '/').replace(/[';,\[\]=\\ ]/g, ch => '%' + ch.charCodeAt(0).toString(16).padStart(2, '0'));
   const result = execFileSync('ffprobe', [
     '-f', 'lavfi',
     '-i', `movie=${escaped},crop=30:30:0:0,signalstats`,

@@ -42,6 +42,10 @@ async function waitForStability(getCounters, options = {}) {
     const sampleTime = Date.now();
     const sampleElapsed = sampleTime - start;
 
+    if (sampleElapsed >= timeout) {
+      return { stable: false, elapsed: sampleElapsed };
+    }
+
     if (
       curr.taskDuration !== prev.taskDuration ||
       curr.layoutCount !== prev.layoutCount ||

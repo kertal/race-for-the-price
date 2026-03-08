@@ -73,7 +73,8 @@ describe('clip-alignment integration', () => {
     tmpDir = path.join(__dirname, '..', 'test-results', 'clip-alignment-' + Date.now());
     fs.mkdirSync(tmpDir, { recursive: true });
 
-    // Create per-video directories for the src paths referenced in index.html.
+    // Create per-video directories so the HTML file's relative src paths resolve
+    // (the player will show placeholder frames since no actual .webm files exist).
     for (const vf of videoFiles) {
       const dir = path.join(tmpDir, path.dirname(vf));
       fs.mkdirSync(dir, { recursive: true });

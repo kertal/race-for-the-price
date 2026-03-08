@@ -8,7 +8,6 @@ await page.raceStart('Webpage loaded and stable');
 
 await page.goto('https://angular.dev/', { waitUntil: 'load' });
 
-
 await page.raceWaitForVisualStability();
 
 page.raceEnd('Webpage loaded and stable');

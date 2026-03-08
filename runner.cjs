@@ -20,6 +20,7 @@ const path = require('path');
 const { execFileSync } = require('child_process');
 const { waitForStability } = require('./visual-stability.cjs');
 const { createCdpCalibrator } = require('./cdp-calibration.cjs');
+const { cueTimings } = require('./cue-timings.cjs');
 
 // Track active browsers/contexts for cleanup on SIGTERM/SIGINT
 let activeBrowsers = [];
@@ -117,25 +118,6 @@ function detectCueFrames(videoPath) {
     console.error(`[detectCueFrames] Failed: ${e.message}`);
     return { startCues: [], endCues: [], frameDuration: 0.04 };
   }
-}
-
-/**
- * Compute clip timing from detected cue frames.
- * Content starts when the green cue first appears and ends one frame before
- * the red cue appears.
- *
- * Returns { segments, calibratedStart } — a single source of truth for both
- * ffmpeg trimming and the video player's build-time calibration.
- */
-function cueTimings(startCues, endCues, frameDuration) {
-  if (startCues.length === 0 || endCues.length === 0) {
-    return { segments: [], calibratedStart: null };
-  }
-  const dt = frameDuration || 0.04; // default ~25fps
-  const calibratedStart = startCues[0];
-  const end = endCues[0] - dt;
-  const segments = end > calibratedStart ? [{ start: calibratedStart, end }] : [];
-  return { segments, calibratedStart };
 }
 
 /**
@@ -944,6 +926,7 @@ async function runBrowserRecording(config, barriers, isParallel, sharedState, op
   const outputDir = path.join(__dirname, 'recordings', id);
   let browser = null;
   let context = null;
+  let cdpCalibrator = null;
   let error = null;
 
   fs.mkdirSync(outputDir, { recursive: true });
@@ -976,7 +959,7 @@ async function runBrowserRecording(config, barriers, isParallel, sharedState, op
     page.setDefaultTimeout(PAGE_TIMEOUT_MS);
     page.setDefaultNavigationTimeout(PAGE_TIMEOUT_MS);
 
-    const cdpCalibrator = await createCdpCalibrator(page);
+    cdpCalibrator = await createCdpCalibrator(page);
 
     await setupClickTracker(context, recordingStartTime);
     await applyThrottling(page, throttle, id);
@@ -1060,6 +1043,7 @@ async function runBrowserRecording(config, barriers, isParallel, sharedState, op
     }
   }
 
+  if (cdpCalibrator) { try { await cdpCalibrator.stop(); } catch {} }
   if (context) { try { await context.close(); } catch {} }
   if (browser) { try { await browser.close(); } catch {} }
 
@@ -1174,4 +1158,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { cueTimings };
+module.exports = {};

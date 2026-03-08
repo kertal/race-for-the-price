@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { createRequire } from 'module';
 
 const require = createRequire(import.meta.url);
-const { cueTimings } = require('../runner.cjs');
+const { cueTimings } = require('../cue-timings.cjs');
 
 describe('cueTimings', () => {
   const FPS_25 = 0.04;
@@ -85,5 +85,29 @@ describe('cueTimings', () => {
     const endCues = [5.0];
     const { segments } = cueTimings(startCues, endCues, fps60);
     expect(segments[0].end).toBeCloseTo(5.0 - fps60, 10);
+  });
+
+  it('pairs multiple start/end cue clusters into multiple segments', () => {
+    // Two recording windows: green burst at ~1.0s, red burst at ~3.0s;
+    // green burst at ~5.0s, red burst at ~8.0s
+    const startCues = [1.0, 1.04, 1.08, 5.0, 5.04, 5.08];
+    const endCues = [3.0, 3.04, 3.08, 8.0, 8.04, 8.08];
+    const { segments, calibratedStart } = cueTimings(startCues, endCues, FPS_25);
+    expect(calibratedStart).toBe(1.0);
+    expect(segments).toHaveLength(2);
+    expect(segments[0].start).toBe(1.0);
+    expect(segments[0].end).toBeCloseTo(3.0 - FPS_25, 10);
+    expect(segments[1].start).toBe(5.0);
+    expect(segments[1].end).toBeCloseTo(8.0 - FPS_25, 10);
+  });
+
+  it('skips end cues that precede a start cue', () => {
+    // Stray red at 0.5, then proper green at 2.0, red at 4.0
+    const startCues = [2.0];
+    const endCues = [0.5, 4.0];
+    const { segments } = cueTimings(startCues, endCues, FPS_25);
+    expect(segments).toHaveLength(1);
+    expect(segments[0].start).toBe(2.0);
+    expect(segments[0].end).toBeCloseTo(4.0 - FPS_25, 10);
   });
 });
