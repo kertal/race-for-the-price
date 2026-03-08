@@ -184,7 +184,6 @@ node race.js <dir> --format=mov           # Broadcast-ready replay format (requi
 node race.js <dir> --format=gif           # Quick highlight reel (requires --ffmpeg)
 node race.js <dir> --runs=3               # Best of 3 — median wins
 node race.js <dir> --slowmo=2            # Slow-motion replay (2x, 3x, etc.)
-node race.js <dir> --profile             # Capture Chrome performance traces
 node race.js <dir> --ffmpeg              # Enable FFmpeg processing (trim, merge, convert)
 ```
 
@@ -216,7 +215,7 @@ races/my-race/results-2026-01-31_14-30-00/
   README.md                           # Race report card
 ```
 
-By default, videos are untrimmed and the HTML player handles virtual trimming via clip times. With `--ffmpeg`, videos are frame-accurately trimmed, a side-by-side merged video is created, and format conversion (mov/gif) is available.
+By default, the HTML player handles virtual trimming via clip times and uses CDP screencast metadata or canvas-based calibration for frame-accurate playback — no external dependencies needed. When neither calibration source is available, it falls back to linear time-mapping which is less precise. With `--ffmpeg`, videos are physically trimmed, a side-by-side merged video is created, and format conversion (mov/gif) is available.
 
 Disclaimer: Due to the nature of the way the video is transformed, the aim here is not accuracy, it's to showcase, to visualize performance. To compare between different network and browser settings.
 Do double check and question the metrics and findings. It should be a helpful tool supporting performance related narratives, but don't assume 100% accuracy. However, this generally applies to many 
@@ -230,8 +229,8 @@ The terminal delivers the verdict in style:
 - 📊 Bar chart comparison of every timed measurement
 - 🥇🥈 Medal assignments per measurement
 - 🏆 **Overall winner declared**
-- 📹 Side-by-side video replay (in-browser export, or server-side via `--ffmpeg`)
-- 📈 Chrome performance traces (`--profile`, open in `chrome://tracing`)
+- 📹 Side-by-side video replay (in-browser export, or physical file via `--ffmpeg`)
+- 📈 Chrome performance traces (open in `chrome://tracing`)
 
 ## `settings.json` Reference
 
@@ -240,8 +239,7 @@ The terminal delivers the verdict in style:
   "parallel": false,
   "network": "none",
   "cpuThrottle": 1,
-  "headless": false,
-  "profile": false
+  "headless": false
 }
 ```
 
@@ -251,14 +249,13 @@ The terminal delivers the verdict in style:
 | `network` | `none`, `slow-3g`, `fast-3g`, `4g` | `none` |
 | `cpuThrottle` | `1` (none) to any multiplier | `1` |
 | `headless` | `true` / `false` | `false` |
-| `profile` | `true` / `false` | `false` |
 
 ## Prerequisites
 
 - **Node.js** 18+ (required)
-- **FFmpeg** (optional — only needed with `--ffmpeg` for server-side video trimming, side-by-side merging, and format conversion)
+- **FFmpeg** (optional — only needed with `--ffmpeg` for physical video trimming, side-by-side merging, and format conversion)
 
-Without FFmpeg, the tool works out of the box — the HTML player handles virtual trimming and includes a client-side Export button for creating side-by-side videos directly in the browser.
+FFmpeg is **not required** for normal use. The HTML player handles virtual trimming with frame-accurate canvas-based calibration and includes a client-side Export button for creating side-by-side videos directly in the browser.
 
 See the **[Installation Guide](INSTALLATION.md)** for detailed setup instructions on every platform.
 
