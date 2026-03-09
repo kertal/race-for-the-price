@@ -11,7 +11,8 @@
     "runner.cjs",
     "sync-barrier.cjs",
     "cli/",
-    "races/",
+    "races/**/*.spec.js",
+    "races/**/settings.json",
     "ReadMe.md",
     "INSTALLATION.md"
   ],
