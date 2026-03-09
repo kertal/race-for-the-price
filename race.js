@@ -112,7 +112,7 @@ export function spawnRunner(ctx) {
 
 /** Run one race, collect results into runDir, return summary. */
 export async function runSingleRace(ctx, runDir, runNavigation = null) {
-  const { racerNames, settings, rootDir } = ctx;
+  const { racerNames, settings } = ctx;
   const { format, ffmpeg } = settings;
   const racerRunDirs = racerNames.map(name => path.join(runDir, name));
   racerRunDirs.forEach(d => fs.mkdirSync(d, { recursive: true }));
