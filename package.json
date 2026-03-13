@@ -17,6 +17,7 @@
     "INSTALLATION.md"
   ],
   "scripts": {
+    "postinstall": "playwright install chromium",
     "test": "vitest run",
     "test:integration": "vitest run --config vitest.integration.config.js",
     "race": "node race.js"
