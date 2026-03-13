@@ -45,6 +45,28 @@ node race.js ./races/lebron-vs-curry
 
 The dribbles are perfectly synced. The difference? The scroll back to the top: LeBron uses a smooth ease-in-out, Curry snaps up with a cubic ease-out. Pure browser performance decides the winner.
 
+## Global Install
+
+Install once, race anywhere:
+
+```bash
+npm install -g race-for-the-prize
+```
+
+Chromium is installed automatically via the `postinstall` script. Then scaffold and run a race from any directory:
+
+```bash
+race-for-the-prize --init my-race   # scaffold starter race into my-race/
+race-for-the-prize my-race          # run it
+```
+
+Use `npx` if you prefer not to install globally:
+
+```bash
+npx race-for-the-prize --init my-race
+npx race-for-the-prize my-race
+```
+
 ## Building Your Own Grand Prix
 
 Every race needs two contenders. Create a folder with two `.spec.js` scripts:
@@ -172,6 +194,7 @@ The `--runs` flag takes the median, smoothing out noise and giving you a number 
 ## Race Flags (CLI Options)
 
 ```bash
+node race.js --init [dir]                 # Scaffold a starter race (default dir: my-race)
 node race.js <dir>                        # Green light — run the race
 node race.js <dir> --results              # Check the scoreboard
 node race.js <dir> --parallel             # Side by side — pure spectacle, wizard-of-many-windows mode

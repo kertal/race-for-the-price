@@ -288,6 +288,70 @@ if (isMainModule) {
 
 const { positional, boolFlags, kvFlags } = parseArgs(process.argv.slice(2));
 
+// --- --init: scaffold a starter race directory ---
+
+if (boolFlags.has('init')) {
+  const dirName = positional[0] || 'my-race';
+  const targetDir = path.resolve(dirName);
+
+  if (fs.existsSync(targetDir)) {
+    console.error(`${c.red}Error: Directory already exists: ${targetDir}${c.reset}`);
+    process.exit(1);
+  }
+
+  fs.mkdirSync(targetDir, { recursive: true });
+
+  const racerA = `// Racer A — edit this script to test your first URL
+// Available race helpers injected into page:
+//   await page.raceRecordingStart()   — start video segment (optional)
+//   await page.raceStart('name')      — start a measurement
+//   page.raceEnd('name')              — end a measurement (sync)
+//   page.raceMessage('text')          — send a message to the CLI
+//   await page.raceRecordingEnd()     — end video segment (optional)
+
+await page.goto('https://example.com');
+await page.raceRecordingStart();
+await page.raceStart('Load');
+await page.waitForLoadState('networkidle');
+page.raceEnd('Load');
+await page.raceRecordingEnd();
+`;
+
+  const racerB = `// Racer B — edit this script to test your second URL
+// Available race helpers injected into page:
+//   await page.raceRecordingStart()   — start video segment (optional)
+//   await page.raceStart('name')      — start a measurement
+//   page.raceEnd('name')              — end a measurement (sync)
+//   page.raceMessage('text')          — send a message to the CLI
+//   await page.raceRecordingEnd()     — end video segment (optional)
+
+await page.goto('https://example.org');
+await page.raceRecordingStart();
+await page.raceStart('Load');
+await page.waitForLoadState('networkidle');
+page.raceEnd('Load');
+await page.raceRecordingEnd();
+`;
+
+  const settings = JSON.stringify({ parallel: false, headless: false, runs: 3 }, null, 2) + '\n';
+
+  fs.writeFileSync(path.join(targetDir, 'racer-a.spec.js'), racerA);
+  fs.writeFileSync(path.join(targetDir, 'racer-b.spec.js'), racerB);
+  fs.writeFileSync(path.join(targetDir, 'settings.json'), settings);
+
+  console.error(`
+${c.green}${c.bold}✓ Race scaffolded:${c.reset} ${c.cyan}${path.relative(process.cwd(), targetDir)}/${c.reset}
+
+  ${c.dim}racer-a.spec.js${c.reset}  — edit to set your first URL / steps
+  ${c.dim}racer-b.spec.js${c.reset}  — edit to set your second URL / steps
+  ${c.dim}settings.json${c.reset}    — tune parallel, headless, runs, network, cpu
+
+${c.bold}Run it:${c.reset}
+  ${c.cyan}npx race-for-the-prize ${path.relative(process.cwd(), targetDir)}${c.reset}
+`);
+  process.exit(0);
+}
+
 if (positional.length === 0) {
   console.error(`
 ${c.yellow}    ____                   ____              _   _            ____       _          ${c.reset}
@@ -326,6 +390,7 @@ ${c.dim}  ───────────────────────�
 
 ${c.bold}  Commands:${c.reset}
 ${c.dim}  ─────────────────────────────────────────────────────────────${c.reset}
+  node race.js ${c.yellow}--init${c.reset} ${c.cyan}[dir]${c.reset}               Scaffold a starter race (default: my-race/)
   node race.js ${c.cyan}<dir>${c.reset}                       Run a race
   node race.js ${c.cyan}<dir>${c.reset} ${c.yellow}--results${c.reset}            View recent results
   node race.js ${c.cyan}<dir>${c.reset} ${c.yellow}--parallel${c.reset}           Run both browsers simultaneously
