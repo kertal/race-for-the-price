@@ -171,12 +171,48 @@ export function buildResultsHtml(comparisons, racers, clickCounts) {
   return html;
 }
 
+export function buildProfileSummaryHtml(profileComparison, racers) {
+  if (!profileComparison) return '';
+
+  function buildRows(winsMap) {
+    if (!racers.some(n => winsMap[n] > 0)) return '';
+    return racers
+      .map((name, i) => ({ name, i, count: winsMap[name] || 0 }))
+      .sort((a, b) => b.count - a.count)
+      .map(({ name, i, count }) => {
+        const color = RACER_CSS_COLORS[i % RACER_CSS_COLORS.length];
+        return `<div class="profile-row"><span class="profile-racer" style="color:${color}">${escHtml(name)}</span><span class="profile-value" style="margin-left:auto">${'&#127942;'.repeat(count)}</span></div>`;
+      }).join('');
+  }
+
+  const measuredWins = profileComparison.measured?.wins || {};
+  const totalWins = profileComparison.total?.wins || {};
+  const measuredRows = buildRows(measuredWins);
+  const totalRows = buildRows(totalWins);
+
+  if (!measuredRows && !totalRows) return '';
+
+  let html = `<details class="section" open>
+  <summary><h2>Performance Summary</h2></summary>
+  <div class="section-body">`;
+
+  if (measuredRows) {
+    html += render(T['profile-metric'], { titleAttr: '', name: 'During Measurement', desc: '', rows: measuredRows });
+  }
+  if (totalRows) {
+    html += render(T['profile-metric'], { titleAttr: '', name: 'Total Session', desc: '', rows: totalRows });
+  }
+
+  html += `\n  </div>\n</details>`;
+  return html;
+}
+
 export function buildProfileHtml(profileComparison, racers) {
   if (!profileComparison) return '';
   const { measured, total } = profileComparison;
   if (measured.comparisons.length === 0 && total.comparisons.length === 0) return '';
 
-  let html = `<details class="section" open>
+  let html = `<details class="section">
   <summary><h2>Performance Profile</h2></summary>
   <div class="section-body">
   <p class="profile-note">Lower values are better for all metrics. Hover over metric names for details.</p>\n`;

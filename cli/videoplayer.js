@@ -22,6 +22,7 @@ import {
   buildMachineInfoHtml,
   buildErrorsHtml,
   buildResultsHtml,
+  buildProfileSummaryHtml,
   buildProfileHtml,
   buildFilesHtml,
   buildDebugPanelHtml,
@@ -155,6 +156,7 @@ export function buildPlayerHtml(summary, videoFiles, altFormat, altFiles, option
     playerSection,
     debugPanel: debugPanelOut,
     results: buildResultsHtml(summary.comparisons || [], racers, summary.clickCounts),
+    profileSummary: buildProfileSummaryHtml(summary.profileComparison || null, racers),
     profile: buildProfileHtml(summary.profileComparison || null, racers),
     files: buildFilesHtml(racers, videoFiles, {
       fullVideoFiles, mergedVideoFile, traceFiles, altFormat, altFiles, placementOrder,

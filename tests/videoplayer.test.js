@@ -757,11 +757,6 @@ describe('buildPlayerHtml ffmpeg.wasm conversion', () => {
     expect(defaultHtml).toContain('toBlobURL');
   });
 
-  it('renders Convert dropdown in controls', () => {
-    expect(defaultHtml).toContain('id="convertSelect"');
-    expect(defaultHtml).toContain('to GIF');
-    expect(defaultHtml).toContain('to MOV');
-  });
 
   it('includes GIF conversion args with palette optimization', () => {
     expect(defaultHtml).toContain('palettegen');
@@ -773,9 +768,6 @@ describe('buildPlayerHtml ffmpeg.wasm conversion', () => {
     expect(defaultHtml).toContain('yuv420p');
   });
 
-  it('does not render Convert dropdown when no videos', () => {
-    expect(noVideosHtml).not.toContain('id="convertSelect"');
-  });
 
   it('includes conversion progress UI CSS', () => {
     expect(defaultHtml).toContain('export-convert-row');
@@ -795,10 +787,6 @@ describe('buildPlayerHtml ffmpeg.wasm conversion', () => {
     expect(defaultHtml).toContain('dismissBtn');
   });
 
-  it('checks response.ok when fetching video for conversion', () => {
-    expect(defaultHtml).toContain('!response.ok');
-    expect(defaultHtml).toContain('Failed to fetch video');
-  });
 
   it('passes clip range for trimming during conversion', () => {
     const html = withOptions({ clipTimes: [{ start: 1, end: 3 }, { start: 1, end: 3 }] });
@@ -807,9 +795,6 @@ describe('buildPlayerHtml ffmpeg.wasm conversion', () => {
     expect(html).toContain("'-t'");
   });
 
-  it('hides Convert dropdown when no videos', () => {
-    expect(defaultHtml).toContain("raceVideos.length < 1");
-  });
 
   it('checks ff.exec exit code and throws a human-readable error on non-zero', () => {
     expect(defaultHtml).toContain('exitCode !== 0');

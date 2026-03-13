@@ -266,7 +266,7 @@
   .section-body {
     padding-top: 0.4rem;
   }
-  .profile-note {
+.profile-note {
     color: #777;
     font-size: 0.8rem;
     margin-bottom: 1rem;
@@ -665,11 +665,13 @@
 {{debugPanel}}
 
 <details class="section" open>
-  <summary><h2>Results</h2></summary>
+  <summary><h2>Measurement Results</h2></summary>
   <div class="section-body">
 {{results}}
   </div>
 </details>
+
+{{profileSummary}}
 
 {{profile}}
 
@@ -734,11 +736,6 @@
   </select>
   {{calibrationBtn}}
   <button class="export-btn" id="exportBtn" title="Export side-by-side video">Export</button>
-  <select class="speed-select" id="convertSelect" title="Convert current video to GIF or MOV (via ffmpeg.wasm)">
-    <option value="" selected disabled>Convert</option>
-    <option value="gif">to GIF</option>
-    <option value="mov">to MOV</option>
-  </select>
 </div>
 </template>
 
