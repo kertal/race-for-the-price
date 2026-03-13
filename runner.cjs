@@ -646,9 +646,7 @@ async function runMarkerMode(page, context, config, barriers, isParallel, shared
     const startWallMs = Date.now();
     if (cdpStartWallMs === null) cdpStartWallMs = startWallMs;
     currentSegmentStart = (startWallMs - recordingStartTime) / 1000;
-    if (!cdpCalibrator || !cdpCalibrator.hasData) {
-      await flashCue(CUE_COLOR_START);
-    }
+    await flashCue(CUE_COLOR_START);
     await showRecordingIndicator();
   };
 
@@ -661,9 +659,7 @@ async function runMarkerMode(page, context, config, barriers, isParallel, shared
     stopPromise = (async () => {
       await hideRecordingIndicator();
       await showMedal();
-      if (!cdpCalibrator || !cdpCalibrator.hasData) {
-        await flashCue(CUE_COLOR_END);
-      }
+      await flashCue(CUE_COLOR_END);
     })();
     return stopPromise;
   };

@@ -810,6 +810,12 @@ describe('buildPlayerHtml ffmpeg.wasm conversion', () => {
   it('hides Convert dropdown when no videos', () => {
     expect(defaultHtml).toContain("raceVideos.length < 1");
   });
+
+  it('checks ff.exec exit code and throws a human-readable error on non-zero', () => {
+    expect(defaultHtml).toContain('exitCode !== 0');
+    expect(defaultHtml).toContain('ffmpeg exited with code');
+    expect(defaultHtml).toContain('conversion failed');
+  });
 });
 
 // --- Clip alignment ---
@@ -877,6 +883,9 @@ describe('copyFFmpegFiles', () => {
       for (const file of ['index.js', 'classes.js', 'worker.js', 'ffmpeg-core.js', 'ffmpeg-core.wasm']) {
         expect(fs.existsSync(path.join(ffmpegDir, file))).toBe(true);
       }
+      const wasmPath = path.join(ffmpegDir, 'ffmpeg-core.wasm');
+      expect(fs.existsSync(wasmPath)).toBe(true);
+      expect(fs.statSync(wasmPath).size).toBeGreaterThan(1024 * 1024);
     });
   });
 
@@ -888,6 +897,7 @@ describe('copyFFmpegFiles', () => {
         expect(copyFFmpegFiles(path.join(tmpDir, 'blocker'))).toBe(false);
         expect(spy).toHaveBeenCalledOnce();
         expect(spy.mock.calls[0][0]).toContain('Could not copy ffmpeg.wasm files');
+        expect(fs.existsSync(path.join(path.join(tmpDir, 'blocker'), 'ffmpeg'))).toBe(false);
       });
     } finally {
       spy.mockRestore();

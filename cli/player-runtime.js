@@ -912,12 +912,12 @@ function loadFFmpeg() {
   if (location.protocol === 'file:') {
     return Promise.reject(new Error('Conversion requires HTTP(S) — serve this file via a local server (e.g. npx serve)'));
   }
-  return import('./ffmpeg/index.js')
+  return import('{{ffmpegDir}}index.js')
     .then(mod => {
       const ff = new mod.FFmpeg();
       return Promise.all([
-        toBlobURL('./ffmpeg/ffmpeg-core.js', 'text/javascript'),
-        toBlobURL('./ffmpeg/ffmpeg-core.wasm', 'application/wasm'),
+        toBlobURL('{{ffmpegDir}}ffmpeg-core.js', 'text/javascript'),
+        toBlobURL('{{ffmpegDir}}ffmpeg-core.wasm', 'application/wasm'),
       ]).then(urls => {
         return ff.load({ coreURL: urls[0], wasmURL: urls[1] }).then(() => {
           URL.revokeObjectURL(urls[0]);
@@ -939,12 +939,19 @@ function convertWithFFmpeg(blob, format, statusEl, progressFill, actionsEl, over
   const outFilename = (downloadName || 'race-side-by-side') + '.' + format;
   const buttons = actionsEl.querySelectorAll('button');
   buttons.forEach(b => { b.disabled = true; });
+  const controller = new AbortController();
+  let outUrl = null;
+
+  function revokeOutUrl() { if (outUrl) { URL.revokeObjectURL(outUrl); outUrl = null; } }
+
   const dismissBtn = document.createElement('button');
   dismissBtn.textContent = 'Cancel';
-  dismissBtn.addEventListener('click', () => { overlay.remove(); });
+  dismissBtn.addEventListener('click', () => { controller.abort(); revokeOutUrl(); overlay.remove(); });
   actionsEl.appendChild(dismissBtn);
   statusEl.textContent = 'Loading ffmpeg.wasm (~25 MB)...';
   progressFill.style.width = '0%';
+
+  window.addEventListener('pagehide', revokeOutUrl, { once: true });
 
   loadFFmpeg().then(ff => {
     statusEl.textContent = 'Converting to ' + format.toUpperCase() + '...';
@@ -966,14 +973,15 @@ function convertWithFFmpeg(blob, format, statusEl, progressFill, actionsEl, over
         args = trimArgs.concat(['-i', inFile, '-c:v', 'libx264', '-pix_fmt', 'yuv420p', outFile]);
       }
       progressFill.style.width = '50%';
-      return ff.exec(args);
-    }).then(() => {
+      return ff.exec(args, { signal: controller.signal });
+    }).then(exitCode => {
+      if (exitCode !== 0) throw new Error('ffmpeg exited with code ' + exitCode + ' — conversion failed');
       progressFill.style.width = '90%';
       return ff.readFile(outFile);
     }).then(data => {
       const mType = format === 'gif' ? 'image/gif' : 'video/quicktime';
       const outBlob = new Blob([data], { type: mType });
-      const outUrl = URL.createObjectURL(outBlob);
+      outUrl = URL.createObjectURL(outBlob);
 
       statusEl.textContent = 'Conversion complete! (' + (outBlob.size / (1024 * 1024)).toFixed(1) + ' MB)';
       progressFill.style.width = '100%';
@@ -985,7 +993,7 @@ function convertWithFFmpeg(blob, format, statusEl, progressFill, actionsEl, over
 
       const closeBtn = document.createElement('button');
       closeBtn.textContent = 'Close';
-      closeBtn.addEventListener('click', () => { URL.revokeObjectURL(outUrl); overlay.remove(); });
+      closeBtn.addEventListener('click', () => { revokeOutUrl(); overlay.remove(); });
 
       actionsEl.innerHTML = '';
       actionsEl.appendChild(dlLink);
@@ -995,6 +1003,7 @@ function convertWithFFmpeg(blob, format, statusEl, progressFill, actionsEl, over
       ff.deleteFile(outFile).catch(e => { console.warn('ffmpeg cleanup:', e.message); });
     });
   }).catch(err => {
+    revokeOutUrl();
     statusEl.textContent = 'Conversion failed: ' + err.message;
     buttons.forEach(b => { b.disabled = false; });
     if (dismissBtn.parentNode) dismissBtn.remove();
@@ -1126,6 +1135,10 @@ if (exportBtn) {
 const convertSelect = document.getElementById('convertSelect');
 if (convertSelect) {
   if (raceVideos.length < 1) convertSelect.style.display = 'none';
+  if (primary) {
+    const racerName = primary.dataset.racerName || primary.id;
+    convertSelect.title = 'Convert ' + racerName + '\'s video to GIF or MOV (via ffmpeg.wasm)';
+  }
   convertSelect.addEventListener('change', () => {
     const format = convertSelect.value;
     if (!format) return;

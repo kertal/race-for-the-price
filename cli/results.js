@@ -85,10 +85,14 @@ export function copyFFmpegFiles(destDir) {
   const ffmpegDir = path.join(destDir, 'ffmpeg');
   try {
     const require = createRequire(import.meta.url);
+    // Resolve package root by walking up from the main entry point to find package.json,
+    // then construct the dist/esm path explicitly for reliable resolution.
     const ffmpegEntry = require.resolve('@ffmpeg/ffmpeg');
-    const ffmpegEsmDir = path.join(path.dirname(ffmpegEntry), '..', 'esm');
+    const ffmpegRoot = path.join(path.dirname(ffmpegEntry), '..', '..');
+    const ffmpegEsmDir = path.join(ffmpegRoot, 'dist', 'esm');
     const coreEntry = require.resolve('@ffmpeg/core');
-    const coreEsmDir = path.join(path.dirname(coreEntry), '..', 'esm');
+    const coreRoot = path.join(path.dirname(coreEntry), '..', '..');
+    const coreEsmDir = path.join(coreRoot, 'dist', 'esm');
 
     fs.mkdirSync(ffmpegDir, { recursive: true });
 
