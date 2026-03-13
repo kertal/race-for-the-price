@@ -112,18 +112,23 @@ export function spawnRunner(ctx) {
 
 /** Run one race, collect results into runDir, return summary. */
 export async function runSingleRace(ctx, runDir, runNavigation = null) {
-  const { racerNames, settings, rootDir } = ctx;
+  const { racerNames, settings } = ctx;
   const { format, ffmpeg } = settings;
   const racerRunDirs = racerNames.map(name => path.join(runDir, name));
   racerRunDirs.forEach(d => fs.mkdirSync(d, { recursive: true }));
 
-  const result = await spawnRunner(ctx);
+  const recordingsDir = path.join(ctx.raceDir || path.dirname(runDir), 'tmp');
+  fs.mkdirSync(recordingsDir, { recursive: true });
+  const raceCtx = { ...ctx, runnerConfig: { ...ctx.runnerConfig, recordingsDir } };
+
+  const result = await spawnRunner(raceCtx);
 
   const progress = startProgress('Processing recordings…');
-  const recordingsBase = path.join(rootDir, 'recordings');
   const results = racerNames.map((name, i) =>
-    moveResults(recordingsBase, name, racerRunDirs[i], result.browsers?.[i] || {})
+    moveResults(recordingsDir, name, racerRunDirs[i], result.browsers?.[i] || {})
   );
+
+  fs.rmSync(recordingsDir, { recursive: true, force: true });
 
   const summary = buildSummary(racerNames, results, settings, runDir);
   fs.writeFileSync(path.join(runDir, 'summary.json'), JSON.stringify(summary, null, 2));
@@ -197,7 +202,7 @@ export async function runSingleRace(ctx, runDir, runNavigation = null) {
  * Build a race context from resolved settings and racer info.
  * This is the config object passed to spawnRunner/runSingleRace.
  */
-export function buildRaceContext({ racerNames, scripts, settings, rootDir = __dirname }) {
+export function buildRaceContext({ racerNames, scripts, settings, rootDir = __dirname, raceDir = null }) {
   const executionMode = settings.parallel ? 'parallel' : 'sequential';
   const throttle = { network: settings.network, cpu: settings.cpuThrottle };
 
@@ -211,7 +216,7 @@ export function buildRaceContext({ racerNames, scripts, settings, rootDir = __di
     ffmpeg: settings.ffmpeg,
   };
 
-  return { racerNames, settings, executionMode, throttle, runnerConfig, rootDir };
+  return { racerNames, settings, executionMode, throttle, runnerConfig, rootDir, raceDir };
 }
 
 // --- CLI entry point ---
@@ -334,7 +339,7 @@ settings.runs = settings.runs ?? 1;
 
 // --- Build race context ---
 
-const ctx = buildRaceContext({ racerNames, scripts, settings, rootDir: __dirname });
+const ctx = buildRaceContext({ racerNames, scripts, settings, rootDir: __dirname, raceDir });
 const resultsDir = path.join(raceDir, `results-${formatTimestamp(new Date())}`);
 const totalRuns = settings.runs;
 

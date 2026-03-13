@@ -566,9 +566,9 @@ describe('buildPlayerHtml debug mode', () => {
   const clipTimes = [{ start: 1.52, end: 3 }, { start: 1.2, end: 2.8 }];
   const debugHtml = withOptions({ clipTimes });
 
-  it('shows Debug button when clipTimes provided', () => {
+  it('shows Calibration button when clipTimes provided', () => {
     expect(debugHtml).toContain('id="modeDebug"');
-    expect(debugHtml).toContain('>Debug<');
+    expect(debugHtml).toContain('>Calibration<');
   });
 
   it('hides Debug button when no clipTimes or all null', () => {
@@ -579,7 +579,7 @@ describe('buildPlayerHtml debug mode', () => {
 
   it('renders debug panel with per-racer rows', () => {
     expect(debugHtml).toContain('id="debugPanel"');
-    expect(debugHtml).toContain('DEBUG: Clip Start Calibration');
+    expect(debugHtml).toContain('Calibration');
     expect(debugHtml).toContain('data-debug-idx="0"');
     expect(debugHtml).toContain('data-debug-idx="1"');
   });
@@ -599,7 +599,7 @@ describe('buildPlayerHtml debug mode', () => {
   });
 
   it('script includes debug functions', () => {
-    for (const fn of ['FRAME_STEP', 'switchToDebug', 'adjustDebugOffset', 'debugOffsets', 'getAdjustedClipTimes', 'resolveAdjustedClip']) {
+    for (const fn of ['FRAME_STEP', 'toggleCalibration', 'adjustDebugOffset', 'debugOffsets', 'getAdjustedClipTimes', 'resolveAdjustedClip']) {
       expect(debugHtml).toContain(fn);
     }
   });
