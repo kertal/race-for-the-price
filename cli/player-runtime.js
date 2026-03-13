@@ -897,6 +897,121 @@ function drawExportFrame(ctx, layout) {
   }
 }
 
+// --- Browser-based format conversion via ffmpeg.wasm ---
+let ffmpegInstance = null;
+
+function toBlobURL(url, mimeType) {
+  return fetch(url).then(resp => {
+    if (!resp.ok) throw new Error('Failed to fetch ' + url + ' (' + resp.status + ')');
+    return resp.blob();
+  }).then(data => URL.createObjectURL(new Blob([data], { type: mimeType })));
+}
+
+function loadFFmpeg() {
+  if (ffmpegInstance) return Promise.resolve(ffmpegInstance);
+  if (location.protocol === 'file:') {
+    return Promise.reject(new Error('Conversion requires HTTP(S) — serve this file via a local server (e.g. npx serve)'));
+  }
+  return import('{{ffmpegDir}}index.js')
+    .then(mod => {
+      const ff = new mod.FFmpeg();
+      return Promise.all([
+        toBlobURL('{{ffmpegDir}}ffmpeg-core.js', 'text/javascript'),
+        toBlobURL('{{ffmpegDir}}ffmpeg-core.wasm', 'application/wasm'),
+      ]).then(urls => {
+        const revoke = () => urls.forEach(u => URL.revokeObjectURL(u));
+        return ff.load({ coreURL: urls[0], wasmURL: urls[1] }).then(revoke, err => { revoke(); throw err; });
+      }).then(() => {
+        ffmpegInstance = ff;
+        return ff;
+      });
+    });
+}
+
+let convertCounter = 0;
+
+function convertWithFFmpeg(blob, format, statusEl, progressFill, actionsEl, overlay, downloadName, clipRange) {
+  const runId = ++convertCounter;
+  const inFile = 'input_' + runId + '.webm';
+  const outFile = 'output_' + runId + '.' + format;
+  const outFilename = (downloadName || 'race-side-by-side') + '.' + format;
+  const buttons = actionsEl.querySelectorAll('button');
+  buttons.forEach(b => { b.disabled = true; });
+  const controller = new AbortController();
+  let outUrl = null;
+
+  function revokeOutUrl() { if (outUrl) { URL.revokeObjectURL(outUrl); outUrl = null; } }
+
+  const dismissBtn = document.createElement('button');
+  dismissBtn.textContent = 'Cancel';
+  dismissBtn.addEventListener('click', () => { controller.abort(); revokeOutUrl(); overlay.remove(); });
+  actionsEl.appendChild(dismissBtn);
+  statusEl.textContent = 'Loading ffmpeg.wasm (~25 MB)...';
+  progressFill.style.width = '0%';
+
+  window.addEventListener('pagehide', revokeOutUrl, { once: true });
+
+  loadFFmpeg().then(ff => {
+    statusEl.textContent = 'Converting to ' + format.toUpperCase() + '...';
+    progressFill.style.width = '30%';
+
+    return blob.arrayBuffer().then(buf => {
+      return ff.writeFile(inFile, new Uint8Array(buf));
+    }).then(() => {
+      let trimArgs = [];
+      if (clipRange) {
+        trimArgs = ['-ss', clipRange.start.toFixed(3), '-t', (clipRange.end - clipRange.start).toFixed(3)];
+      }
+      let args;
+      if (format === 'gif') {
+        args = trimArgs.concat(['-i', inFile, '-filter_complex',
+          'fps=10,scale=640:-2,split[s0][s1];[s0]palettegen=max_colors=128:stats_mode=diff[p];[s1][p]paletteuse=dither=bayer:bayer_scale=3',
+          outFile]);
+      } else {
+        args = trimArgs.concat(['-i', inFile, '-c:v', 'libx264', '-pix_fmt', 'yuv420p', outFile]);
+      }
+      progressFill.style.width = '50%';
+      return ff.exec(args, { signal: controller.signal });
+    }).then(exitCode => {
+      if (exitCode !== 0) throw new Error('ffmpeg exited with code ' + exitCode + ' — conversion failed');
+      progressFill.style.width = '90%';
+      return ff.readFile(outFile);
+    }).then(data => {
+      const mType = format === 'gif' ? 'image/gif' : 'video/quicktime';
+      const outBlob = new Blob([data], { type: mType });
+      outUrl = URL.createObjectURL(outBlob);
+
+      statusEl.textContent = 'Conversion complete! (' + (outBlob.size / (1024 * 1024)).toFixed(1) + ' MB)';
+      progressFill.style.width = '100%';
+
+      const dlLink = document.createElement('a');
+      dlLink.href = outUrl;
+      dlLink.download = outFilename;
+      dlLink.textContent = 'Download ' + format.toUpperCase();
+
+      const closeBtn = document.createElement('button');
+      closeBtn.textContent = 'Close';
+      closeBtn.addEventListener('click', () => { revokeOutUrl(); overlay.remove(); });
+
+      actionsEl.innerHTML = '';
+      actionsEl.appendChild(dlLink);
+      actionsEl.appendChild(closeBtn);
+
+      ff.deleteFile(inFile).catch(e => { console.warn('ffmpeg cleanup:', e.message); });
+      ff.deleteFile(outFile).catch(e => { console.warn('ffmpeg cleanup:', e.message); });
+    });
+  }).catch(err => {
+    revokeOutUrl();
+    if (ffmpegInstance) {
+      ffmpegInstance.deleteFile(inFile).catch(() => {});
+      ffmpegInstance.deleteFile(outFile).catch(() => {});
+    }
+    statusEl.textContent = 'Conversion failed: ' + err.message;
+    buttons.forEach(b => { b.disabled = false; });
+    if (dismissBtn.parentNode) dismissBtn.remove();
+  });
+}
+
 async function startExport() {
   if (!HTMLCanvasElement.prototype.captureStream || !window.MediaRecorder) {
     alert('Export requires a browser that supports Canvas.captureStream and MediaRecorder (Chrome, Firefox, or Edge).');
@@ -977,7 +1092,17 @@ async function startExport() {
     const closeBtn = document.createElement('button');
     closeBtn.textContent = 'Close';
     closeBtn.addEventListener('click', () => { URL.revokeObjectURL(url); overlay.remove(); });
-    actionsEl.replaceChildren(downloadLink, closeBtn);
+    const convertRow = document.createElement('div');
+    convertRow.className = 'export-convert-row';
+    const gifBtn = document.createElement('button');
+    gifBtn.textContent = 'Convert to GIF';
+    gifBtn.addEventListener('click', () => { convertWithFFmpeg(blob, 'gif', statusEl, progressFill, actionsEl, overlay); });
+    const movBtn = document.createElement('button');
+    movBtn.textContent = 'Convert to MOV';
+    movBtn.addEventListener('click', () => { convertWithFFmpeg(blob, 'mov', statusEl, progressFill, actionsEl, overlay); });
+    convertRow.appendChild(gifBtn);
+    convertRow.appendChild(movBtn);
+    actionsEl.replaceChildren(downloadLink, convertRow, closeBtn);
   };
 
   recorder.start();
@@ -1007,3 +1132,4 @@ if (exportBtn) {
   if (raceVideos.length < 2) exportBtn.style.display = 'none';
   exportBtn.addEventListener('click', startExport);
 }
+

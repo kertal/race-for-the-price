@@ -22,6 +22,7 @@ import {
   buildMachineInfoHtml,
   buildErrorsHtml,
   buildResultsHtml,
+  buildProfileSummaryHtml,
   buildProfileHtml,
   buildFilesHtml,
   buildDebugPanelHtml,
@@ -60,7 +61,8 @@ function buildPlayerScript(config) {
 // ---------------------------------------------------------------------------
 
 export function buildPlayerHtml(summary, videoFiles, altFormat, altFiles, options = {}) {
-  const { fullVideoFiles, mergedVideoFile, traceFiles, runNavigation, medianRunLabel, clipTimes } = options;
+  const { fullVideoFiles, mergedVideoFile, traceFiles, runNavigation, medianRunLabel, clipTimes, ffmpegPathPrefix } = options;
+  const ffmpegDir = (ffmpegPathPrefix || './') + 'ffmpeg/';
   const racers = summary.racers;
   const count = racers.length;
 
@@ -95,7 +97,7 @@ export function buildPlayerHtml(summary, videoFiles, altFormat, altFiles, option
       const racer = racers[origIdx];
       return `  <div class="racer">
     <div class="racer-label" style="color: ${color}">${escHtml(racer)}</div>
-    <video id="v${displayIdx}" src="${escHtml(videoFiles[origIdx])}" preload="auto" muted></video>
+    <video id="v${displayIdx}" src="${escHtml(videoFiles[origIdx])}" preload="auto" muted data-racer-name="${escHtml(racer)}"></video>
   </div>`;
     }).join('\n');
 
@@ -127,6 +129,7 @@ export function buildPlayerHtml(summary, videoFiles, altFormat, altFiles, option
         : 'null',
       racerNamesJson: JSON.stringify(orderedRacerNames),
       racerColorsJson: JSON.stringify(orderedRacerColors),
+      ffmpegDir,
     });
   }
 
@@ -153,6 +156,7 @@ export function buildPlayerHtml(summary, videoFiles, altFormat, altFiles, option
     playerSection,
     debugPanel: debugPanelOut,
     results: buildResultsHtml(summary.comparisons || [], racers, summary.clickCounts),
+    profileSummary: buildProfileSummaryHtml(summary.profileComparison || null, racers),
     profile: buildProfileHtml(summary.profileComparison || null, racers),
     files: buildFilesHtml(racers, videoFiles, {
       fullVideoFiles, mergedVideoFile, traceFiles, altFormat, altFiles, placementOrder,

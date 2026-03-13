@@ -15,6 +15,7 @@
  */
 
 import fs from 'fs';
+import http from 'http';
 import path from 'path';
 import { spawn } from 'child_process';
 import { fileURLToPath } from 'url';
@@ -23,7 +24,7 @@ import { c, FORMAT_EXTENSIONS } from './cli/colors.js';
 import { parseArgs, discoverRacers, applyOverrides } from './cli/config.js';
 import { buildSummary, printSummary, buildMarkdownSummary, buildMedianSummary, buildMultiRunMarkdown, printRecentRaces, getPlacementOrder, findMedianRunIndex } from './cli/summary.js';
 import { createSideBySide } from './cli/sidebyside.js';
-import { moveResults, convertVideos } from './cli/results.js';
+import { moveResults, convertVideos, copyFFmpegFiles } from './cli/results.js';
 import { buildPlayerHtml } from './cli/videoplayer.js';
 
 /** Format a Date as YYYY-MM-DD_HH-MM-SS for directory naming. */
@@ -111,7 +112,7 @@ export function spawnRunner(ctx) {
 }
 
 /** Run one race, collect results into runDir, return summary. */
-export async function runSingleRace(ctx, runDir, runNavigation = null) {
+export async function runSingleRace(ctx, runDir, runNavigation = null, raceOptions = {}) {
   const { racerNames, settings } = ctx;
   const { format, ffmpeg } = settings;
   const racerRunDirs = racerNames.map(name => path.join(runDir, name));
@@ -191,8 +192,10 @@ export async function runSingleRace(ctx, runDir, runNavigation = null) {
     traceFiles,
     runNavigation,
     clipTimes,
+    ffmpegPathPrefix: raceOptions.ffmpegPathPrefix || './',
   };
   fs.writeFileSync(path.join(runDir, 'index.html'), buildPlayerHtml(summary, videoFiles, ffmpeg && format !== 'webm' ? format : null, altFiles, playerOptions));
+  if (!raceOptions.skipCopyFFmpeg && !settings.noWasm) copyFFmpegFiles(runDir);
 
   return { summary, sideBySidePath, sideBySideName, clipTimes };
 }
@@ -216,6 +219,62 @@ export function buildRaceContext({ racerNames, scripts, settings, rootDir = __di
   };
 
   return { racerNames, settings, executionMode, throttle, runnerConfig, rootDir, raceDir };
+}
+
+// --- Local server ---
+
+const MIME_TYPES = {
+  '.html': 'text/html',
+  '.js': 'application/javascript',
+  '.css': 'text/css',
+  '.webm': 'video/webm',
+  '.mp4': 'video/mp4',
+  '.gif': 'image/gif',
+  '.mov': 'video/quicktime',
+  '.wasm': 'application/wasm',
+  '.json': 'application/json',
+};
+
+/**
+ * Serve `dir` over HTTP on a random free port, open `index.html` in the
+ * browser, and keep running until the process is killed.
+ */
+export function serveResults(dir) {
+  const server = http.createServer((req, res) => {
+    const urlPath = req.url === '/' ? '/index.html' : req.url.split('?')[0];
+    const filePath = path.join(dir, urlPath);
+    if (!filePath.startsWith(dir + path.sep) && filePath !== dir) {
+      res.writeHead(403);
+      res.end('Forbidden');
+      return;
+    }
+    const ext = path.extname(filePath).toLowerCase();
+    fs.readFile(filePath, (err, data) => {
+      if (err) {
+        res.writeHead(404);
+        res.end('Not found');
+        return;
+      }
+      res.writeHead(200, {
+        'Content-Type': MIME_TYPES[ext] || 'application/octet-stream',
+        'Cross-Origin-Opener-Policy': 'same-origin',
+        'Cross-Origin-Embedder-Policy': 'require-corp',
+      });
+      res.end(data);
+    });
+  });
+
+  server.listen(0, '127.0.0.1', () => {
+    const { port } = server.address();
+    const url = `http://localhost:${port}/`;
+    console.error(`  ${c.dim}🌐 Serving at ${c.reset}${c.cyan}${c.bold}${url}${c.reset}`);
+    const opener = process.platform === 'win32' ? ['cmd', ['/c', 'start', url]]
+      : process.platform === 'darwin' ? ['open', [url]]
+      : ['xdg-open', [url]];
+    const child = spawn(opener[0], opener[1], { stdio: 'ignore', detached: true });
+    child.on('error', () => {}); // ignore ENOENT on headless/CI environments
+    child.unref();
+  });
 }
 
 // --- CLI entry point ---
@@ -330,6 +389,7 @@ settings.parallel = settings.parallel ?? false;
 settings.headless = settings.headless ?? false;
 settings.noOverlay = settings.noOverlay ?? false;
 settings.ffmpeg = settings.ffmpeg ?? false;
+settings.noWasm = settings.noWasm ?? false;
 settings.format = settings.format ?? 'webm';
 settings.network = settings.network ?? 'none';
 settings.cpuThrottle = settings.cpuThrottle ?? 1;
@@ -360,7 +420,7 @@ async function main() {
       for (let i = 0; i < totalRuns; i++) {
         console.error(`\n  ${c.bold}${c.cyan}── Run ${i + 1} of ${totalRuns} ──${c.reset}`);
         const runNav = { currentRun: i + 1, totalRuns, pathPrefix: '../' };
-        const { summary, sideBySidePath, sideBySideName, clipTimes: runClipTimes } = await runSingleRace(ctx, path.join(resultsDir, String(i + 1)), runNav);
+        const { summary, sideBySidePath, sideBySideName, clipTimes: runClipTimes } = await runSingleRace(ctx, path.join(resultsDir, String(i + 1)), runNav, { skipCopyFFmpeg: true, ffmpegPathPrefix: '../' });
         printSummary(summary);
         summaries.push(summary);
         sideBySideNames.push(sideBySidePath ? sideBySideName : null);
@@ -393,6 +453,7 @@ async function main() {
         path.join(resultsDir, 'index.html'),
         buildPlayerHtml(medianSummary, medianVideoFiles, ffmpeg && format !== 'webm' ? format : null, medianAltFiles, medianPlayerOptions)
       );
+      if (!settings.noWasm) copyFFmpegFiles(resultsDir);
 
       console.error(`\n  ${c.bold}${c.cyan}── Median Results (${totalRuns} runs) ──${c.reset}`);
       printSummary(medianSummary);
@@ -403,13 +464,19 @@ async function main() {
 
     const { relResults, relHtml } = buildResultsPaths(resultsDir);
     console.error(`  ${c.dim}📂 ${relResults}${c.reset}`);
-    console.error(`  ${c.cyan}${c.bold}open ${relHtml}${c.reset}`);
+
+    const shouldServe = kvFlags.serve !== 'false';
+    if (shouldServe) {
+      serveResults(resultsDir);
+    } else {
+      console.error(`  ${c.cyan}${c.bold}open ${relHtml}${c.reset}`);
+    }
   } catch (e) {
     console.error(`\n${c.red}${c.bold}Race failed:${c.reset} ${e.message}\n`);
     process.exit(1);
   }
 }
 
-main().then(() => process.exit(0));
+main().then(() => { if (kvFlags.serve === 'false') process.exit(0); });
 
 } // end isMainModule
