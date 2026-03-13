@@ -268,7 +268,12 @@ export function serveResults(dir) {
     const { port } = server.address();
     const url = `http://localhost:${port}/`;
     console.error(`  ${c.dim}🌐 Serving at ${c.reset}${c.cyan}${c.bold}${url}${c.reset}`);
-    spawn('open', [url], { stdio: 'ignore', detached: true }).unref();
+    const opener = process.platform === 'win32' ? ['cmd', ['/c', 'start', url]]
+      : process.platform === 'darwin' ? ['open', [url]]
+      : ['xdg-open', [url]];
+    const child = spawn(opener[0], opener[1], { stdio: 'ignore', detached: true });
+    child.on('error', () => {}); // ignore ENOENT on headless/CI environments
+    child.unref();
   });
 }
 

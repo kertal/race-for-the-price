@@ -919,10 +919,8 @@ function loadFFmpeg() {
         toBlobURL('{{ffmpegDir}}ffmpeg-core.js', 'text/javascript'),
         toBlobURL('{{ffmpegDir}}ffmpeg-core.wasm', 'application/wasm'),
       ]).then(urls => {
-        return ff.load({ coreURL: urls[0], wasmURL: urls[1] }).then(() => {
-          URL.revokeObjectURL(urls[0]);
-          URL.revokeObjectURL(urls[1]);
-        });
+        const revoke = () => urls.forEach(u => URL.revokeObjectURL(u));
+        return ff.load({ coreURL: urls[0], wasmURL: urls[1] }).then(revoke, err => { revoke(); throw err; });
       }).then(() => {
         ffmpegInstance = ff;
         return ff;
@@ -1004,6 +1002,10 @@ function convertWithFFmpeg(blob, format, statusEl, progressFill, actionsEl, over
     });
   }).catch(err => {
     revokeOutUrl();
+    if (ffmpegInstance) {
+      ffmpegInstance.deleteFile(inFile).catch(() => {});
+      ffmpegInstance.deleteFile(outFile).catch(() => {});
+    }
     statusEl.textContent = 'Conversion failed: ' + err.message;
     buttons.forEach(b => { b.disabled = false; });
     if (dismissBtn.parentNode) dismissBtn.remove();

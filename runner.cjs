@@ -520,9 +520,11 @@ async function runMarkerMode(page, context, config, barriers, isParallel, shared
   const activeMeasurements = {};
   let cdpStartWallMs = null;
 
-  // --- Visual cues for frame-accurate trimming / calibration (fallback) ---
-  // Only used when CDP screencast calibration is unavailable. A tiny colored
-  // square in the top-left corner, displayed for 2 frames (~80ms at 25fps).
+  // --- Visual cues for frame-accurate trimming / calibration ---
+  // Always injected into every recording. A tiny colored square in the top-left
+  // corner, displayed for ~2 frames (80ms at 25fps). Used by the HTML player's
+  // Canvas API to calibrate clip start/end positions client-side, independent
+  // of whether CDP screencast calibration is also available.
   // 4px is the smallest size that reliably survives VP8 video compression.
   const CUE_COLOR_START = '#00FF00';
   const CUE_COLOR_END = '#FF0000';

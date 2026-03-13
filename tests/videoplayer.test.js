@@ -749,8 +749,7 @@ describe('buildPlayerHtml ffmpeg.wasm conversion', () => {
   });
 
   it('revokes blob URLs after ffmpeg load to prevent memory leak', () => {
-    expect(defaultHtml).toContain('revokeObjectURL(urls[0])');
-    expect(defaultHtml).toContain('revokeObjectURL(urls[1])');
+    expect(defaultHtml).toContain('forEach(u => URL.revokeObjectURL(u))');
   });
 
   it('includes toBlobURL helper for CORS-safe loading', () => {
