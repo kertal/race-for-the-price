@@ -1133,3 +1133,222 @@ if (exportBtn) {
   exportBtn.addEventListener('click', startExport);
 }
 
+// --- Export HTML: self-contained zip with videos, profiles, baked adjustments ---
+
+function crc32(data) {
+  const table = new Uint32Array(256);
+  for (let i = 0; i < 256; i++) {
+    let c = i;
+    for (let j = 0; j < 8; j++) c = c & 1 ? 0xEDB88320 ^ (c >>> 1) : c >>> 1;
+    table[i] = c;
+  }
+  let crc = 0xFFFFFFFF;
+  for (let i = 0; i < data.length; i++) crc = table[(crc ^ data[i]) & 0xFF] ^ (crc >>> 8);
+  return (crc ^ 0xFFFFFFFF) >>> 0;
+}
+
+function createZip(files) {
+  const entries = [];
+  let offset = 0;
+  for (const f of files) {
+    const nameBytes = new TextEncoder().encode(f.name);
+    const crc = crc32(f.data);
+    entries.push({ name: nameBytes, data: f.data, crc, offset });
+    offset += 30 + nameBytes.length + f.data.length;
+  }
+  const centralDirOffset = offset;
+  let centralDirSize = 0;
+  entries.forEach(e => centralDirSize += 46 + e.name.length);
+  const totalSize = offset + centralDirSize + 22;
+  const buf = new ArrayBuffer(totalSize);
+  const view = new DataView(buf);
+  const bytes = new Uint8Array(buf);
+  let pos = 0;
+  for (const e of entries) {
+    view.setUint32(pos, 0x04034b50, true); pos += 4;
+    view.setUint16(pos, 20, true); pos += 2;
+    view.setUint16(pos, 0, true); pos += 2;
+    view.setUint16(pos, 0, true); pos += 2;
+    view.setUint16(pos, 0, true); pos += 2;
+    view.setUint16(pos, 0x5421, true); pos += 2;
+    view.setUint32(pos, e.crc, true); pos += 4;
+    view.setUint32(pos, e.data.length, true); pos += 4;
+    view.setUint32(pos, e.data.length, true); pos += 4;
+    view.setUint16(pos, e.name.length, true); pos += 2;
+    view.setUint16(pos, 0, true); pos += 2;
+    bytes.set(e.name, pos); pos += e.name.length;
+    bytes.set(e.data, pos); pos += e.data.length;
+  }
+  for (const e of entries) {
+    view.setUint32(pos, 0x02014b50, true); pos += 4;
+    view.setUint16(pos, 20, true); pos += 2;
+    view.setUint16(pos, 20, true); pos += 2;
+    view.setUint16(pos, 0, true); pos += 2;
+    view.setUint16(pos, 0, true); pos += 2;
+    view.setUint16(pos, 0, true); pos += 2;
+    view.setUint16(pos, 0x5421, true); pos += 2;
+    view.setUint32(pos, e.crc, true); pos += 4;
+    view.setUint32(pos, e.data.length, true); pos += 4;
+    view.setUint32(pos, e.data.length, true); pos += 4;
+    view.setUint16(pos, e.name.length, true); pos += 2;
+    view.setUint16(pos, 0, true); pos += 2;
+    view.setUint16(pos, 0, true); pos += 2;
+    view.setUint16(pos, 0, true); pos += 2;
+    view.setUint16(pos, 0, true); pos += 2;
+    view.setUint32(pos, 0, true); pos += 4;
+    view.setUint32(pos, e.offset, true); pos += 4;
+    bytes.set(e.name, pos); pos += e.name.length;
+  }
+  view.setUint32(pos, 0x06054b50, true); pos += 4;
+  view.setUint16(pos, 0, true); pos += 2;
+  view.setUint16(pos, 0, true); pos += 2;
+  view.setUint16(pos, entries.length, true); pos += 2;
+  view.setUint16(pos, entries.length, true); pos += 2;
+  view.setUint32(pos, centralDirSize, true); pos += 4;
+  view.setUint32(pos, centralDirOffset, true); pos += 4;
+  view.setUint16(pos, 0, true);
+  return bytes;
+}
+
+function buildExportHtml() {
+  const doc = document.documentElement.cloneNode(true);
+
+  // Remove debug/calibration panel and button
+  const dp = doc.querySelector('#debugPanel');
+  if (dp) dp.remove();
+  const calBtn = doc.querySelector('#modeDebug');
+  if (calBtn) calBtn.remove();
+
+  // Remove Export HTML button (already exported)
+  const htmlBtn = doc.querySelector('#exportHtmlBtn');
+  if (htmlBtn) htmlBtn.remove();
+
+  // Remove any active export overlays
+  doc.querySelectorAll('.export-overlay').forEach(el => el.remove());
+
+  // Bake adjusted clip times into the script
+  const scripts = doc.querySelectorAll('script');
+  for (const script of scripts) {
+    let text = script.textContent;
+    if (!text.includes('const clipTimes =')) continue;
+    const adj = getAdjustedClipTimes();
+    if (adj && clipTimes) {
+      const baked = adj.map((ct, i) => {
+        if (!ct) return null;
+        const orig = clipTimes[i] || {};
+        return {
+          start: ct.start,
+          end: ct.end,
+          _converted: true,
+          calibratedStart: ct.start,
+          calibratedEnd: ct.end,
+          _wcStart: orig._wcStart != null ? orig._wcStart : ct.start,
+          _wcEnd: orig._wcEnd != null ? orig._wcEnd : ct.end,
+          wallClockDuration: orig.wallClockDuration || 0,
+          recordingOffset: orig.recordingOffset || 0,
+          measurements: orig.measurements || [],
+        };
+      });
+      text = text.replace(
+        /const clipTimes = .+;\n/,
+        'const clipTimes = ' + JSON.stringify(baked) + ';\n'
+      );
+    }
+    script.textContent = text;
+  }
+
+  return '<!DOCTYPE html>\n' + doc.outerHTML;
+}
+
+async function startHtmlExport() {
+  if (playing) { videos.forEach(v => v?.pause()); playing = false; playBtn.textContent = '\u25B6'; }
+
+  const tmpl = document.getElementById('tmpl-export-overlay');
+  const overlay = tmpl.content.cloneNode(true).firstElementChild;
+  const canvas = overlay.querySelector('.export-canvas');
+  canvas.style.display = 'none';
+  const titleEl = overlay.querySelector('h3');
+  titleEl.textContent = 'Exporting HTML';
+  document.body.appendChild(overlay);
+
+  const progressFill = overlay.querySelector('.export-progress-fill');
+  const statusEl = overlay.querySelector('.export-status');
+  const actionsEl = overlay.querySelector('.export-actions');
+
+  let cancelled = false;
+  overlay.querySelector('.export-cancel').addEventListener('click', () => {
+    cancelled = true;
+    overlay.remove();
+  });
+
+  // Collect all file paths to include
+  const filePaths = new Set();
+  raceVideoPaths.forEach(p => { if (p) filePaths.add(p); });
+  if (fullVideoPaths) fullVideoPaths.forEach(p => { if (p) filePaths.add(p); });
+  if (mergedVideo) {
+    const mergedPath = mergedVideo.getAttribute('src');
+    if (mergedPath) filePaths.add(mergedPath);
+  }
+  // Scan file-links section for trace files and other assets
+  document.querySelectorAll('.file-links a').forEach(a => {
+    const href = a.getAttribute('href');
+    if (href && !href.startsWith('http') && !href.startsWith('//') && !href.startsWith('data:')) {
+      filePaths.add(href);
+    }
+  });
+  filePaths.add('summary.json');
+
+  const zipFiles = [];
+  let fetched = 0;
+  const total = filePaths.size;
+
+  for (const filePath of filePaths) {
+    if (cancelled) return;
+    fetched++;
+    statusEl.textContent = 'Fetching ' + filePath + ' (' + fetched + '/' + total + ')';
+    progressFill.style.width = (fetched / total * 80).toFixed(0) + '%';
+    try {
+      const resp = await fetch(filePath);
+      if (resp.ok) {
+        const data = new Uint8Array(await resp.arrayBuffer());
+        zipFiles.push({ name: filePath, data });
+      }
+    } catch (e) {
+      console.warn('Failed to fetch ' + filePath + ':', e.message);
+    }
+  }
+
+  if (cancelled) return;
+
+  statusEl.textContent = 'Building HTML...';
+  progressFill.style.width = '85%';
+  const html = buildExportHtml();
+  zipFiles.push({ name: 'index.html', data: new TextEncoder().encode(html) });
+
+  if (cancelled) return;
+
+  statusEl.textContent = 'Creating ZIP...';
+  progressFill.style.width = '95%';
+  const zipData = createZip(zipFiles);
+  const blob = new Blob([zipData], { type: 'application/zip' });
+  const url = URL.createObjectURL(blob);
+
+  statusEl.textContent = 'Export complete! (' + (blob.size / (1024 * 1024)).toFixed(1) + ' MB)';
+  progressFill.style.width = '100%';
+
+  const dlLink = document.createElement('a');
+  dlLink.href = url;
+  const zipName = document.title.replace(/[^a-zA-Z0-9-]/g, '_').replace(/_+/g, '_').toLowerCase();
+  dlLink.download = (zipName || 'race-export') + '.zip';
+  dlLink.textContent = 'Download ZIP';
+  const closeBtn = document.createElement('button');
+  closeBtn.textContent = 'Close';
+  closeBtn.addEventListener('click', () => { URL.revokeObjectURL(url); overlay.remove(); });
+  actionsEl.replaceChildren(dlLink, closeBtn);
+}
+
+const exportHtmlBtn = document.getElementById('exportHtmlBtn');
+if (exportHtmlBtn) {
+  exportHtmlBtn.addEventListener('click', startHtmlExport);
+}
+
