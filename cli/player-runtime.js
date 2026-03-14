@@ -420,6 +420,7 @@ const modeFull = document.getElementById('modeFull');
 const modeMerged = document.getElementById('modeMerged');
 const modeDebug = document.getElementById('modeDebug');
 const debugPanel = document.getElementById('debugPanel');
+const segmentNav = document.getElementById('segmentNav');
 
 function setActiveMode(btn) {
   [modeRace, modeFull, modeMerged].forEach(b => b?.classList.remove('active'));
@@ -470,6 +471,18 @@ function showCalibrationBtn() {
   if (modeDebug) modeDebug.style.display = '';
 }
 
+function resetSegmentState({ hide = false } = {}) {
+  activeSegmentName = null;
+  activeSegmentClipTimes = null;
+  if (!segmentNav) return;
+  segmentNav.querySelectorAll('.segment-btn').forEach((b) => {
+    b.classList.remove('active');
+  });
+  const allBtn = segmentNav.querySelector('.segment-btn[data-segment="__all__"]');
+  if (allBtn) allBtn.classList.add('active');
+  segmentNav.style.display = hide ? 'none' : (segmentNavBuilt ? 'flex' : 'none');
+}
+
 function switchToRace() {
   switchMode('race', raceVideos, modeRace, {
     loadSrc() { raceVideos.forEach((v, i) => { v.src = raceVideoPaths[i]; }); },
@@ -478,6 +491,7 @@ function switchToRace() {
       if (mergedContainer) mergedContainer.style.display = 'none';
       hideCalibration();
       showCalibrationBtn();
+      resetSegmentState({ hide: false });
     },
     doSeek() {
       activeClip = resolveAdjustedClip();
@@ -497,6 +511,7 @@ function switchToFull() {
       playerContainer.style.display = 'flex';
       if (mergedContainer) mergedContainer.style.display = 'none';
       hideCalibration();
+      resetSegmentState({ hide: true });
     },
     doSeek() {
       activeClip = null;
@@ -514,6 +529,7 @@ function switchToMerged() {
       playerContainer.style.display = 'none';
       mergedContainer.style.display = 'block';
       hideCalibration();
+      resetSegmentState({ hide: true });
       activeClip = null;
       duration = mergedVideo.duration || 0;
     },
@@ -742,8 +758,7 @@ function getSegmentClipTimes(name) {
 
 function buildSegmentNav() {
   if (segmentNavBuilt || !clipTimes) return;
-  const segNav = document.getElementById('segmentNav');
-  if (!segNav) return;
+  if (!segmentNav) return;
   if (!clipTimes.every(ct => !ct || ct._wcStart != null)) return;
   const seen = new Set();
   const names = [];
@@ -755,15 +770,18 @@ function buildSegmentNav() {
   }
   if (names.length < 2) return;
   segmentNavBuilt = true;
-  segNav.innerHTML = '';
+  segmentNav.innerHTML = '';
   function makeSegBtn(label, name) {
     const btn = document.createElement('button');
     btn.className = 'segment-btn' + (name === null ? ' active' : '');
     btn.textContent = label;
+    btn.dataset.segment = name === null ? '__all__' : name;
     btn.addEventListener('click', () => {
-      segNav.querySelectorAll('.segment-btn').forEach(b => b.classList.remove('active'));
+      segmentNav.querySelectorAll('.segment-btn').forEach((b) => {
+        b.classList.remove('active');
+      });
       btn.classList.add('active');
-      if (playing) { videos.forEach(v => v?.pause()); playing = false; playBtn.textContent = '\u25B6'; }
+      if (playing) { videos.forEach((v) => { v?.pause(); }); playing = false; playBtn.textContent = '\u25B6'; }
       activeSegmentName = name;
       activeSegmentClipTimes = name !== null ? getSegmentClipTimes(name) : null;
       activeClip = resolveAdjustedClip();
@@ -773,9 +791,9 @@ function buildSegmentNav() {
     });
     return btn;
   }
-  segNav.appendChild(makeSegBtn('All', null));
-  for (const name of names) segNav.appendChild(makeSegBtn(name, name));
-  segNav.style.display = 'flex';
+  segmentNav.appendChild(makeSegBtn('All', null));
+  for (const name of names) segmentNav.appendChild(makeSegBtn(name, name));
+  segmentNav.style.display = 'flex';
 }
 
 function buildRacerFilter() {

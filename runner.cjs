@@ -962,7 +962,8 @@ async function runBrowserRecording(config, barriers, isParallel, sharedState, op
 
     const videoFile = getMostRecentVideo(outputDir);
 
-    let calibratedStart = traceTiming?.calibratedStartPts ?? null;
+    const calibratedStart = ffmpeg ? null : (traceTiming?.calibratedStartPts ?? null);
+    const traceCalibration = ffmpeg ? null : (traceTiming?.traceCalibration || null);
 
     return {
       id,
@@ -976,7 +977,7 @@ async function runBrowserRecording(config, barriers, isParallel, sharedState, op
       recordingOffset,
       wallClockDuration,
       calibratedStart,
-      traceCalibration: traceTiming?.traceCalibration || null,
+      traceCalibration,
       error: null
     };
   } catch (e) {
