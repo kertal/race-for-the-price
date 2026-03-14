@@ -127,6 +127,56 @@
     border-color: #d4af37;
     font-weight: bold;
   }
+  .racer-filter {
+    display: none;
+    gap: 0.4rem;
+    padding: 0.5rem 0 0;
+    justify-content: center;
+    flex-wrap: wrap;
+  }
+  .racer-filter-btn {
+    border: 1px solid currentColor;
+    border-radius: 4px;
+    padding: 0.3rem 0.9rem;
+    font-size: 0.82rem;
+    cursor: pointer;
+    font-family: 'Courier New', monospace;
+    background: #2a2a2a;
+    transition: opacity 0.2s, background 0.2s;
+    opacity: 0.35;
+  }
+  .racer-filter-btn.active { opacity: 1; }
+  .racer-filter-btn:not(.active):hover { background: #3a3a3a; opacity: 0.6; }
+  .racer-filter-btn.active:hover { background: #3a3a3a; }
+  .segment-nav {
+    display: none;
+    gap: 0.4rem;
+    padding: 0 0 0.8rem;
+    justify-content: center;
+    flex-wrap: wrap;
+  }
+  .segment-btn {
+    background: #2a2a2a;
+    color: #999;
+    border: 1px solid #555;
+    border-radius: 4px;
+    padding: 0.3rem 0.9rem;
+    font-size: 0.82rem;
+    cursor: pointer;
+    font-family: 'Courier New', monospace;
+    transition: all 0.2s;
+  }
+  .segment-btn:hover {
+    background: #3a3a3a;
+    border-color: #d4af37;
+    color: #e8e0d0;
+  }
+  .segment-btn.active {
+    background: #1a3a1a;
+    color: #7de07d;
+    border-color: #5cb85c;
+    font-weight: bold;
+  }
   .player-container {
     display: flex;
     flex-wrap: wrap;
@@ -712,11 +762,13 @@
 <template id="build-racer-name"><span class="racer-name" style="color: {{color}}">{{name}}</span></template>
 
 <template id="build-player-section">
+<div id="racerFilter" class="racer-filter"></div>
 <div class="player-container" id="playerContainer">
 {{videoElements}}
 </div>
 {{mergedVideoElement}}
 
+<div id="segmentNav" class="segment-nav"></div>
 <div class="controls">
   <div class="controls-row">
     <button class="frame-btn" id="goStart" title="Go to start (Home)">&#x23EE;</button>
