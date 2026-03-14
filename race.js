@@ -138,6 +138,7 @@ export async function runSingleRace(ctx, runDir, runNavigation = null, raceOptio
         profileMetrics: b.profileMetrics || null, error: b.error || null,
       };
       fs.writeFileSync(path.join(racerRunDirs[i], 'measurements.json'), JSON.stringify(data.measurements, null, 2));
+      if (data.clickEvents.length > 0) fs.writeFileSync(path.join(racerRunDirs[i], 'clicks.json'), JSON.stringify(data.clickEvents, null, 2));
       if (data.profileMetrics) fs.writeFileSync(path.join(racerRunDirs[i], 'profile-metrics.json'), JSON.stringify(data.profileMetrics, null, 2));
       return data;
     });

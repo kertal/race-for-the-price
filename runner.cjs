@@ -511,7 +511,7 @@ function sanitizeScript(script) {
  *
  * Returns { segments, measurements } for video trimming and result comparison.
  */
-async function runMarkerMode(page, context, config, barriers, isParallel, sharedState, recordingStartTime, noOverlay = false, metricsCollector = null, cdpCalibrator = null) {
+async function runMarkerMode(page, context, config, barriers, isParallel, sharedState, recordingStartTime, noOverlay = false, metricsCollector = null, cdpCalibrator = null, noRecording = false) {
   const { id, script: raceScript } = config;
 
   const segments = [];
@@ -532,6 +532,7 @@ async function runMarkerMode(page, context, config, barriers, isParallel, shared
   const CUE_SIZE = 4;
 
   const flashCue = async (color, durationMs) => {
+    if (noRecording) return;
     const dur = typeof durationMs === 'number' ? durationMs : CUE_DURATION_MS;
     await page.evaluate(({ c, size, ms }) => {
       const el = document.createElement('div');
@@ -579,7 +580,7 @@ async function runMarkerMode(page, context, config, barriers, isParallel, shared
   }
 
   const showRecordingIndicator = async () => {
-    if (noOverlay) return;
+    if (noOverlay || noRecording) return;
     overlayState = { text: '📹 REC', bg: 'rgba(220,38,38,0.85)' };
     await injectOverlay(overlayState.text, overlayState.bg);
   };
@@ -591,7 +592,7 @@ async function runMarkerMode(page, context, config, barriers, isParallel, shared
   };
 
   const hideRecordingIndicator = async () => {
-    if (noOverlay) return;
+    if (noOverlay || noRecording) return;
     overlayState = null;
     await page.evaluate(() => {
       const el = document.getElementById('__race_rec_indicator');
@@ -970,7 +971,7 @@ async function runBrowserRecording(config, barriers, isParallel, sharedState, op
 
     const metricsCollector = await startProfiling(page, browser, id);
 
-    const result = await runMarkerMode(page, context, config, barriers, isParallel, sharedState, recordingStartTime, noOverlay, metricsCollector, cdpCalibrator);
+    const result = await runMarkerMode(page, context, config, barriers, isParallel, sharedState, recordingStartTime, noOverlay, metricsCollector, cdpCalibrator, noRecording);
     const markerSegments = result?.segments || [];
     const measurements = result?.measurements || [];
 
