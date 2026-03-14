@@ -1,7 +1,7 @@
 /**
- * Integration test: verify that build-time calibration values are
- * applied correctly in the HTML player, and that the canvas-based fallback
- * is wired up only when neither build-time nor trace calibration is available.
+ * Integration test: verify that trace-based calibration values are
+ * applied in the HTML player and that missing trace metadata throws a strict
+ * manual-calibration error.
  *
  * Uses Playwright to load generated index.html pages with known clip times
  * and evaluate the player's runtime behavior.
@@ -30,11 +30,6 @@ const makeSummary = (overrides = {}) => ({
 });
 
 const videoFiles = ['alpha/alpha.race.webm', 'bravo/bravo.race.webm'];
-
-const calibratedClipTimes = [
-  { start: 2.0, end: 10.0, recordingOffset: 0.01, wallClockDuration: 12.0, calibratedStart: 3.52 },
-  { start: 1.8, end: 9.5, recordingOffset: 0.02, wallClockDuration: 11.5, calibratedStart: 2.0 },
-];
 
 const traceCalibratedClipTimes = [
   { start: 2.0, end: 10.0, recordingOffset: 0.01, wallClockDuration: 12.0, calibratedStart: null, traceCalibration: { recordingStartTs: 2_000_000, firstFrameTs: 1_900_000 } },
@@ -91,10 +86,10 @@ describe('calibration integration', () => {
     }
   });
 
-  it('embeds build-time calibratedStart in clipTimes JSON', async () => {
+  it('embeds trace calibration metadata in clipTimes JSON', async () => {
     if (!page) return;
 
-    buildAndWrite(calibratedClipTimes);
+    buildAndWrite(traceCalibratedClipTimes);
     await page.goto(`file://${path.join(tmpDir, 'index.html')}`);
 
     const parsed = await extractFromScripts(() => {
@@ -106,22 +101,22 @@ describe('calibration integration', () => {
     });
 
     expect(parsed).toHaveLength(2);
-    expect(parsed[0].calibratedStart).toBe(3.52);
-    expect(parsed[1].calibratedStart).toBe(2.0);
+    expect(parsed[0].traceCalibration.recordingStartTs).toBe(2_000_000);
+    expect(parsed[1].traceCalibration.recordingStartTs).toBe(3_000_000);
   });
 
-  it('onMeta applies calibratedStart via applyCalibrationToClip, not linear scaling', async () => {
+  it('onMeta applies trace calibration via applyCalibrationToClip', async () => {
     if (!page) return;
 
-    buildAndWrite(calibratedClipTimes);
+    buildAndWrite(traceCalibratedClipTimes);
     await page.goto(`file://${path.join(tmpDir, 'index.html')}`);
 
     const result = await extractFromScripts(() => {
       for (const s of document.querySelectorAll('script')) {
         if (s.textContent.includes('applyCalibrationToClip')) {
           return {
-            hasBuildTimePath: s.textContent.includes('ct.calibratedStart != null'),
-            hasApplyCall: s.textContent.includes('applyCalibrationToClip(ct, ct.calibratedStart'),
+            hasTracePath: s.textContent.includes('hasTraceCalibration(ct)'),
+            hasApplyCall: s.textContent.includes('applyCalibrationToClip(ct, tracePtsStart'),
             hasContinue: s.textContent.includes('continue;'),
           };
         }
@@ -130,12 +125,12 @@ describe('calibration integration', () => {
     });
 
     expect(result).toBeTruthy();
-    expect(result.hasBuildTimePath).toBe(true);
+    expect(result.hasTracePath).toBe(true);
     expect(result.hasApplyCall).toBe(true);
     expect(result.hasContinue).toBe(true);
   });
 
-  it('skips canvas calibration when clips are build-time or trace calibrated', async () => {
+  it('does not include canvas calibration fallback in runtime', async () => {
     if (!page) return;
 
     buildAndWrite(traceCalibratedClipTimes);
@@ -152,9 +147,10 @@ describe('calibration integration', () => {
         : null;
 
       for (const s of document.querySelectorAll('script')) {
-        if (s.textContent.includes('needsCalibration')) {
+        if (s.textContent.includes('applyCalibrationToClip')) {
           return {
-            hasCheck: s.textContent.includes("clipTimes.some(ct => ct && ct.calibratedStart == null && !hasTraceCalibration(ct))"),
+            hasNoCanvasFallback: !s.textContent.includes('calibrateFromCanvas'),
+            hasNoLocalStorageFallback: !s.textContent.includes('localStorage'),
             hasTraceFixtures: Array.isArray(parsedClipTimes) && parsedClipTimes.every(ct => !!ct.traceCalibration),
             needsCalibration,
           };
@@ -164,47 +160,25 @@ describe('calibration integration', () => {
     });
 
     expect(result).toBeTruthy();
-    expect(result.hasCheck).toBe(true);
+    expect(result.hasNoCanvasFallback).toBe(true);
+    expect(result.hasNoLocalStorageFallback).toBe(true);
     expect(result.hasTraceFixtures).toBe(true);
     expect(result.needsCalibration).toBe(false);
   });
 
-  it('falls back to canvas calibration when calibratedStart is null', async () => {
+  it('throws strict manual calibration error when trace metadata is missing', async () => {
     if (!page) return;
 
     buildAndWrite(uncalibratedClipTimes);
     await page.goto(`file://${path.join(tmpDir, 'index.html')}`);
 
-    const parsed = await extractFromScripts(() => {
-      for (const s of document.querySelectorAll('script')) {
-        const match = s.textContent.match(/const clipTimes = (\[.*?\]);/);
-        if (match) return JSON.parse(match[1]);
-      }
-      return null;
-    });
-
-    expect(parsed).toHaveLength(2);
-    expect(parsed[0].calibratedStart).toBeNull();
-    expect(parsed[1].calibratedStart).toBeNull();
-  });
-
-  it('includes SecurityError re-throw for blob fallback on file://', async () => {
-    if (!page) return;
-
-    buildAndWrite(baseClipTimes);
-    await page.goto(`file://${path.join(tmpDir, 'index.html')}`);
-
     const result = await extractFromScripts(() => {
       for (const s of document.querySelectorAll('script')) {
-        if (s.textContent.includes('toBlobVideo')) {
+        if (s.textContent.includes('failCalibration(')) {
           return {
-            hasSecurityCheck: s.textContent.includes("e.name === 'SecurityError'"),
-            hasTaintedCheck: s.textContent.includes("e.message.indexOf('tainted')"),
-            hasThrow: s.textContent.includes('throw e'),
-            hasBlobFn: s.textContent.includes('async function toBlobVideo'),
-            hasFetchFallback: s.textContent.includes('fetch('),
-            hasBlobUrl: s.textContent.includes('_blobUrl'),
-            hasCreateObjectURL: s.textContent.includes('createObjectURL'),
+            hasStrictMessage: s.textContent.includes('Please calibrate manually.'),
+            hasDisablePlay: s.textContent.includes('playBtn.disabled = true'),
+            hasThrow: s.textContent.includes('throw new Error(msg)'),
           };
         }
       }
@@ -212,19 +186,38 @@ describe('calibration integration', () => {
     });
 
     expect(result).toBeTruthy();
-    expect(result.hasSecurityCheck).toBe(true);
-    expect(result.hasTaintedCheck).toBe(true);
+    expect(result.hasStrictMessage).toBe(true);
+    expect(result.hasDisablePlay).toBe(true);
     expect(result.hasThrow).toBe(true);
-    expect(result.hasBlobFn).toBe(true);
-    expect(result.hasFetchFallback).toBe(true);
-    expect(result.hasBlobUrl).toBe(true);
-    expect(result.hasCreateObjectURL).toBe(true);
+  });
+
+  it('does not include blob/security canvas fallback helpers', async () => {
+    if (!page) return;
+
+    buildAndWrite(baseClipTimes);
+    await page.goto(`file://${path.join(tmpDir, 'index.html')}`);
+
+    const result = await extractFromScripts(() => {
+      for (const s of document.querySelectorAll('script')) {
+        if (s.textContent.includes('applyCalibrationToClip')) {
+          return {
+            hasBlobFn: s.textContent.includes('toBlobVideo'),
+            hasCanvasDetect: s.textContent.includes('detectGreenCuePts'),
+          };
+        }
+      }
+      return null;
+    });
+
+    expect(result).toBeTruthy();
+    expect(result.hasBlobFn).toBe(false);
+    expect(result.hasCanvasDetect).toBe(false);
   });
 
   it('applyCalibrationToClip computes correct clip range from PTS start', async () => {
     if (!page) return;
 
-    buildAndWrite(calibratedClipTimes);
+    buildAndWrite(traceCalibratedClipTimes);
     await page.goto(`file://${path.join(tmpDir, 'index.html')}`);
 
     const result = await extractFromScripts(() => {
@@ -235,8 +228,8 @@ describe('calibration integration', () => {
             const segDuration = ct.end - ct.start;
             return {
               wcStart: ct.start, wcEnd: ct.end, segDuration,
-              expectedStart: ct.calibratedStart,
-              expectedEnd: ct.calibratedStart + segDuration,
+              expectedStart: (ct.traceCalibration.recordingStartTs - ct.traceCalibration.firstFrameTs) / 1e6,
+              expectedEnd: ((ct.traceCalibration.recordingStartTs - ct.traceCalibration.firstFrameTs) / 1e6) + segDuration,
             };
           });
         }
@@ -246,12 +239,12 @@ describe('calibration integration', () => {
 
     expect(result).toHaveLength(2);
 
-    // alpha: wcStart=2.0, wcEnd=10.0 → segDuration=8.0, calibratedStart=3.52
-    expect(result[0].expectedStart).toBeCloseTo(3.52, 5);
-    expect(result[0].expectedEnd).toBeCloseTo(3.52 + 8.0, 5);
+    // alpha: recordingStartTs-firstFrameTs=0.1s, segDuration=8.0
+    expect(result[0].expectedStart).toBeCloseTo(0.1, 5);
+    expect(result[0].expectedEnd).toBeCloseTo(8.1, 5);
 
-    // bravo: wcStart=1.8, wcEnd=9.5 → segDuration=7.7, calibratedStart=2.0
-    expect(result[1].expectedStart).toBeCloseTo(2.0, 5);
-    expect(result[1].expectedEnd).toBeCloseTo(2.0 + 7.7, 5);
+    // bravo: recordingStartTs-firstFrameTs=0.2s, segDuration=7.7
+    expect(result[1].expectedStart).toBeCloseTo(0.2, 5);
+    expect(result[1].expectedEnd).toBeCloseTo(7.9, 5);
   });
 });

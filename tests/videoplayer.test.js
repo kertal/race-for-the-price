@@ -429,76 +429,39 @@ describe('buildPlayerHtml clipTimes', () => {
     expect(parsed[1].wallClockDuration).toBe(4.8);
   });
 
-  it('includes PTS conversion logic in onMeta', () => {
+  it('includes trace-based conversion logic in onMeta', () => {
     const clips = [
       { start: 1, end: 3, recordingOffset: 0.1, wallClockDuration: 5 },
       { start: 1, end: 3, recordingOffset: 0.1, wallClockDuration: 5 },
     ];
     const html = withClips(clips);
     expect(html).toContain('_converted');
-    expect(html).toContain('wallClockDuration');
-    expect(html).toContain('recordingOffset');
+    expect(html).toContain('tracePtsStart');
+    expect(html).toContain('hasTraceCalibration(ct)');
   });
 
-  it('includes canvas-based calibration with localStorage cache', () => {
+  it('does not include canvas/localStorage fallback calibration code', () => {
     const clips = [
       { start: 1, end: 3, recordingOffset: 0.1, wallClockDuration: 5 },
       { start: 1, end: 3, recordingOffset: 0.1, wallClockDuration: 5 },
     ];
     const html = withClips(clips);
-    expect(html).toContain('detectGreenCuePts');
-    expect(html).toContain('calibrateFromCanvas');
-    expect(html).toContain('isGreenCue');
-    expect(html).toContain('canvasCalibrationStarted');
-    expect(html).toContain('drawImage');
-    expect(html).toContain('getImageData');
-    expect(html).toContain('loadCalibrationCache');
-    expect(html).toContain('saveCalibrationCache');
-    expect(html).toContain('restoreFromCache');
-    expect(html).toContain('localStorage');
+    expect(html).not.toContain('detectGreenCuePts');
+    expect(html).not.toContain('calibrateFromCanvas');
+    expect(html).not.toContain('isGreenCue');
+    expect(html).not.toContain('restoreFromCache');
+    expect(html).not.toContain('localStorage');
   });
 
-  it('scans from 0 up to 60% of video duration for green cue', () => {
+  it('includes strict calibration error for missing trace metadata', () => {
     const clips = [
       { start: 1, end: 3, recordingOffset: 0.1, wallClockDuration: 5 },
       { start: 1, end: 3, recordingOffset: 0.1, wallClockDuration: 5 },
     ];
     const html = withClips(clips);
-    expect(html).toContain('v.duration * 0.6');
-    expect(html).toContain('for (let t = 0; t <= endT');
-  });
-
-  it('uses 0.08s coarse step matching fallback cue frame count', () => {
-    const clips = [
-      { start: 1, end: 3, recordingOffset: 0.1, wallClockDuration: 5 },
-      { start: 1, end: 3, recordingOffset: 0.1, wallClockDuration: 5 },
-    ];
-    const html = withClips(clips);
-    expect(html).toContain('FRAME_DT * 2');
-    expect(html).toContain('FRAME_DT = 0.04');
-  });
-
-  it('applies build-time calibratedStart directly, skipping linear scaling', () => {
-    const clips = [
-      { start: 1, end: 3, recordingOffset: 0.1, wallClockDuration: 5, calibratedStart: 2.56 },
-      { start: 1, end: 3, recordingOffset: 0.1, wallClockDuration: 5, calibratedStart: 3.12 },
-    ];
-    const html = withClips(clips);
-    expect(html).toContain('"calibratedStart":2.56');
-    expect(html).toContain('"calibratedStart":3.12');
-    expect(html).toContain('ct.calibratedStart != null');
-    expect(html).toContain('applyCalibrationToClip(ct, ct.calibratedStart');
-  });
-
-  it('falls through to linear scaling when calibratedStart is null', () => {
-    const clips = [
-      { start: 1, end: 3, recordingOffset: 0.1, wallClockDuration: 5, calibratedStart: null },
-      { start: 1, end: 3, recordingOffset: 0.1, wallClockDuration: 5, calibratedStart: null },
-    ];
-    const html = withClips(clips);
-    expect(html).toContain('"calibratedStart":null');
-    // Linear scaling path should still exist
-    expect(html).toContain('ct._ptsScale = scale');
+    expect(html).toContain('Calibration error: missing trace calibration metadata. Please calibrate manually.');
+    expect(html).toContain('manual calibration required');
+    expect(html).toContain('playBtn.disabled = true');
   });
 
   it('embeds trace calibration and uses trace-based conversion when present', () => {
@@ -526,30 +489,18 @@ describe('buildPlayerHtml clipTimes', () => {
     expect(html).toContain('"traceCalibration"');
     expect(html).toContain('hasTraceCalibration(ct)');
     expect(html).toContain('traceTsToClipPts');
-    expect(html).toContain('ct.calibratedStart == null && !hasTraceCalibration(ct)');
     expect(html).toContain('traceCalibration.firstFrameTs');
   });
 
-  it('re-throws SecurityError from detectGreenCuePts for blob fallback', () => {
+  it('does not include blob/canvas fallback helpers', () => {
     const clips = [
       { start: 1, end: 3, recordingOffset: 0.1, wallClockDuration: 5 },
       { start: 1, end: 3, recordingOffset: 0.1, wallClockDuration: 5 },
     ];
     const html = withClips(clips);
-    expect(html).toContain("e.name === 'SecurityError'");
-    expect(html).toContain("e.message.indexOf('tainted')");
-    expect(html).toContain('throw e');
-  });
-
-  it('includes toBlobVideo fallback for file:// canvas tainting', () => {
-    const clips = [
-      { start: 1, end: 3, recordingOffset: 0.1, wallClockDuration: 5 },
-      { start: 1, end: 3, recordingOffset: 0.1, wallClockDuration: 5 },
-    ];
-    const html = withClips(clips);
-    expect(html).toContain('toBlobVideo');
-    expect(html).toContain('fetch(');
-    expect(html).toContain('createObjectURL');
+    expect(html).not.toContain('toBlobVideo');
+    expect(html).not.toContain('detectGreenCuePts');
+    expect(html).not.toContain('getImageData(0, 0, CUE_DETECT_SIZE, CUE_DETECT_SIZE)');
   });
 });
 
@@ -700,10 +651,10 @@ describe('buildPlayerHtml timing events', () => {
     expect(parsed[0].measurements[0].name).toBe('Load');
   });
 
-  it('saves _wcStart, _wcEnd, _ptsScale in onMeta before PTS conversion', () => {
+  it('saves _wcStart and _wcEnd in onMeta before trace conversion', () => {
     expect(timingHtml).toContain('ct._wcStart = ct.start');
     expect(timingHtml).toContain('ct._wcEnd = ct.end');
-    expect(timingHtml).toContain('ct._ptsScale = scale');
+    expect(timingHtml).not.toContain('ct._ptsScale = scale');
   });
 
   it('script contains timing event labels and column headers', () => {
@@ -712,7 +663,7 @@ describe('buildPlayerHtml timing events', () => {
     expect(timingHtml).toContain('raceRecordingStart()');
     expect(timingHtml).toContain('raceRecordingEnd()');
     expect(timingHtml).toContain('Pre-close');
-    expect(timingHtml).toContain('Video time scale');
+    expect(timingHtml).toContain('Calibration mode');
     expect(timingHtml).toContain("'Event'");
     expect(timingHtml).toContain("'Wall-clock'");
     expect(timingHtml).toContain("'Video time'");

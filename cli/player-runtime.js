@@ -38,107 +38,16 @@ const hiddenRacers = new Set();
 const STEP = 0.1;
 let loadedSrcSet = 'race';
 let pendingSeek = null;
-let canvasCalibrationStarted = false;
+let calibrationFatalError = null;
 
-// --- Canvas calibration cache (localStorage) ---
-const CALIBRATION_CACHE_KEY = 'raceCalibration:' + raceVideoPaths.join('|');
-
-function loadCalibrationCache() {
-  try {
-    const raw = localStorage.getItem(CALIBRATION_CACHE_KEY);
-    return raw ? JSON.parse(raw) : null;
-  } catch { return null; }
-}
-
-function saveCalibrationCache() {
-  if (!clipTimes) return;
-  try {
-    const entries = clipTimes.map(ct => {
-      if (!ct || ct.calibratedStart == null) return null;
-      return { calibratedStart: ct.calibratedStart, calibratedEnd: ct.calibratedEnd };
-    });
-    localStorage.setItem(CALIBRATION_CACHE_KEY, JSON.stringify(entries));
-  } catch {}
-}
-
-// --- Canvas-based PTS calibration ---
-const CUE_DETECT_SIZE = 4;
-const FRAME_DT = 0.04;
-
-function seekVideoTo(video, time) {
-  return new Promise((resolve, reject) => {
-    if (Math.abs(video.currentTime - time) < 0.001) { resolve(); return; }
-    const timer = setTimeout(() => {
-      video.removeEventListener('seeked', onSeeked);
-      reject(new Error('seek timeout'));
-    }, 2000);
-    function onSeeked() { clearTimeout(timer); resolve(); }
-    video.addEventListener('seeked', onSeeked, { once: true });
-    video.currentTime = time;
-  });
-}
-
-function isGreenCue(data) {
-  let greenPx = 0;
-  const total = data.length / 4;
-  for (let j = 0; j < data.length; j += 4) {
-    if (data[j] < 100 && data[j + 1] > 150 && data[j + 2] < 100) greenPx++;
-  }
-  return greenPx > total * 0.4;
-}
-
-async function toBlobVideo(src) {
-  const response = await fetch(src);
-  if (!response.ok) throw new Error('fetch status ' + response.status);
-  const blob = await response.blob();
-  const blobUrl = URL.createObjectURL(blob);
-  const tmp = document.createElement('video');
-  tmp.muted = true;
-  tmp.preload = 'auto';
-  tmp.src = blobUrl;
-  tmp._blobUrl = blobUrl;
-  await new Promise((resolve, reject) => {
-    tmp.addEventListener('loadedmetadata', resolve, { once: true });
-    tmp.addEventListener('error', () => reject(new Error('blob video load failed')));
-    tmp.load();
-  });
-  return tmp;
-}
-
-async function detectGreenCuePts(video, scanTo) {
-  const canvas = document.createElement('canvas');
-  canvas.width = CUE_DETECT_SIZE;
-  canvas.height = CUE_DETECT_SIZE;
-  const ctx = canvas.getContext('2d', { willReadFrequently: true });
-  const endT = Math.min(video.duration || 0, scanTo || video.duration || 0);
-  const srcOffset = 0;
-
-  async function checkFrame(t) {
-    await seekVideoTo(video, t);
-    ctx.drawImage(video, srcOffset, srcOffset, CUE_DETECT_SIZE, CUE_DETECT_SIZE, 0, 0, CUE_DETECT_SIZE, CUE_DETECT_SIZE);
-    return isGreenCue(ctx.getImageData(0, 0, CUE_DETECT_SIZE, CUE_DETECT_SIZE).data);
-  }
-
-  const coarseStep = FRAME_DT * 2;
-
-  try {
-    let coarseHit = null;
-    for (let t = 0; t <= endT; t += coarseStep) {
-      if (await checkFrame(t)) { coarseHit = t; break; }
-    }
-    if (coarseHit === null) return null;
-
-    const fineStart = Math.max(0, coarseHit - coarseStep);
-    let firstGreen = coarseHit;
-    for (let ft = fineStart; ft < coarseHit; ft += FRAME_DT) {
-      if (await checkFrame(ft)) { firstGreen = ft; break; }
-    }
-    return Math.max(0, firstGreen - FRAME_DT);
-  } catch (e) {
-    if (e.name === 'SecurityError' || (e.message && e.message.indexOf('tainted') !== -1)) throw e;
-    console.warn('Canvas cue detection failed:', e.message);
-    return null;
-  }
+function failCalibration(msg) {
+  if (calibrationFatalError) return;
+  calibrationFatalError = msg;
+  if (timeDisplay) timeDisplay.textContent = msg;
+  if (frameDisplay) frameDisplay.textContent = 'manual calibration required';
+  if (playBtn) playBtn.disabled = true;
+  if (scrubber) scrubber.disabled = true;
+  throw new Error(msg);
 }
 
 function applyCalibrationToClip(ct, ptsStart, videoDuration) {
@@ -149,58 +58,6 @@ function applyCalibrationToClip(ct, ptsStart, videoDuration) {
   ct.start = ptsStart;
   ct.end = Math.min(ptsStart + segDuration, videoDuration);
   ct._converted = true;
-}
-
-function restoreFromCache() {
-  const cached = loadCalibrationCache();
-  if (!cached || !clipTimes) return false;
-  let applied = false;
-  for (let i = 0; i < clipTimes.length; i++) {
-    const ct = clipTimes[i];
-    const entry = cached[i];
-    const v = raceVideos[i];
-    if (!ct || !entry || !v || !v.duration || ct._wcStart == null || ct.calibratedStart != null) continue;
-    if (entry.calibratedStart != null) {
-      applyCalibrationToClip(ct, entry.calibratedStart, v.duration);
-      applied = true;
-    }
-  }
-  return applied;
-}
-
-async function calibrateFromCanvas() {
-  if (!clipTimes) return false;
-  let anyCalibrated = false;
-
-  for (let idx = 0; idx < raceVideos.length; idx++) {
-    const v = raceVideos[idx];
-    const ct = clipTimes[idx];
-    if (!v || !ct || ct._wcStart == null || ct.calibratedStart != null) continue;
-
-    const scanTo = v.duration * 0.6;
-    let ptsStart = null;
-
-    try {
-      ptsStart = await detectGreenCuePts(v, scanTo);
-    } catch {
-      try {
-        const blobVid = await toBlobVideo(v.src);
-        ptsStart = await detectGreenCuePts(blobVid, scanTo);
-        URL.revokeObjectURL(blobVid._blobUrl);
-      } catch (e) {
-        console.warn('Canvas calibration failed for video ' + idx + ':', e.message);
-        continue;
-      }
-    }
-
-    if (ptsStart !== null) {
-      applyCalibrationToClip(ct, ptsStart, v.duration);
-      anyCalibrated = true;
-    }
-  }
-
-  if (anyCalibrated) saveCalibrationCache();
-  return anyCalibrated;
 }
 
 // --- Formatting helpers ---
@@ -265,6 +122,7 @@ function seekAll(t) {
 // --- Metadata & calibration ---
 
 function onMeta() {
+  if (calibrationFatalError) return;
   duration = Math.max(...videos.filter(v => v).map(v => v.duration || 0));
   let convertedAny = false;
   if (clipTimes) {
@@ -274,29 +132,17 @@ function onMeta() {
       if (ct._converted) continue;
       const wasConverted = !!ct._converted;
       if (ct._wcStart == null) { ct._wcStart = ct.start; ct._wcEnd = ct.end; }
-      if (ct.calibratedStart != null) {
-        applyCalibrationToClip(ct, ct.calibratedStart, videos[i].duration);
-        if (!wasConverted && ct._converted) convertedAny = true;
-        continue;
+      if (!hasTraceCalibration(ct) || !Number.isFinite(ct.traceCalibration.firstFrameTs)) {
+        failCalibration('Calibration error: missing trace calibration metadata. Please calibrate manually.');
+        return;
       }
-      if (hasTraceCalibration(ct) && Number.isFinite(ct.traceCalibration.firstFrameTs)) {
-        const tracePtsStart = (ct.traceCalibration.recordingStartTs - ct.traceCalibration.firstFrameTs) / 1e6;
-        if (Number.isFinite(tracePtsStart) && tracePtsStart >= 0) {
-          applyCalibrationToClip(ct, tracePtsStart, videos[i].duration);
-          if (!wasConverted && ct._converted) convertedAny = true;
-          continue;
-        }
+      const tracePtsStart = (ct.traceCalibration.recordingStartTs - ct.traceCalibration.firstFrameTs) / 1e6;
+      if (!Number.isFinite(tracePtsStart) || tracePtsStart < 0) {
+        failCalibration('Calibration error: invalid trace timestamps. Please calibrate manually.');
+        return;
       }
-      const wcd = ct.wallClockDuration;
-      const offset = ct.recordingOffset || 0;
-      if (wcd > 0) {
-        const scale = videos[i].duration / wcd;
-        ct._ptsScale = scale;
-        ct.start = (ct.start + offset) * scale;
-        ct.end = (ct.end + offset) * scale;
-        ct._converted = true;
-        convertedAny = true;
-      }
+      applyCalibrationToClip(ct, tracePtsStart, videos[i].duration);
+      if (!wasConverted && ct._converted) convertedAny = true;
     }
   }
   activeClip = resolveAdjustedClip();
@@ -316,30 +162,6 @@ function onMeta() {
     updateTimeDisplay();
   }
 
-  if (!canvasCalibrationStarted && clipTimes &&
-      raceVideos.every(v => !v || v.readyState >= 1)) {
-    const needsCalibration = clipTimes.some(ct => ct && ct.calibratedStart == null && !hasTraceCalibration(ct));
-    if (needsCalibration) {
-      canvasCalibrationStarted = true;
-      const applyCalibrationResult = () => {
-        // Recompute segment clip times: canvas calibration may have changed
-        // ct.start/ct.end via applyCalibrationToClip(), invalidating cached PTS.
-        if (activeSegmentName !== null) {
-          activeSegmentClipTimes = getSegmentClipTimes(activeSegmentName);
-        }
-        activeClip = resolveAdjustedClip();
-        buildSegmentNav();
-        updateTimeDisplay();
-        updateDebugStats();
-        if (activeClip) { seekAll(activeClip.start); scrubber.value = 0; }
-      };
-      if (restoreFromCache()) {
-        applyCalibrationResult();
-      } else {
-        calibrateFromCanvas().then(any => { if (any) applyCalibrationResult(); });
-      }
-    }
-  }
 }
 
 // --- Playback event handlers ---
@@ -610,22 +432,14 @@ function updateDebugStats() {
       eventsEl.appendChild(noData);
       continue;
     }
-    const offset = ct.recordingOffset || 0;
-    const wcd = ct.wallClockDuration || 0;
-    const scale = ct._ptsScale || (wcd > 0 ? v.duration / wcd : 0);
     const wcStart = ct._wcStart != null ? ct._wcStart : ct.start;
     const wcEnd = ct._wcEnd != null ? ct._wcEnd : ct.end;
-    let toPts;
-    if (ct.calibratedStart != null) {
+    const toPts = (wc) => {
       const wcDur = wcEnd - wcStart;
       const ptsDur = ct.end - ct.start;
-      toPts = (wc) => {
-        if (wcDur <= 0) return wc;
-        return ct.start + (wc - wcStart) / wcDur * ptsDur;
-      };
-    } else {
-      toPts = (wc) => scale > 0 ? (wc + offset) * scale : wc;
-    }
+      if (wcDur <= 0) return null;
+      return ct.start + (wc - wcStart) / wcDur * ptsDur;
+    };
     const fmtS = (val) => val != null && isFinite(val) ? val.toFixed(3) + 's' : '\u2014';
     const toFrame = (pts) => pts != null && isFinite(pts) ? Math.round(pts / 0.04) : null;
     const fmtF = (pts) => { const f = toFrame(pts); return f != null ? '#' + f : '\u2014'; };
@@ -650,11 +464,8 @@ function updateDebugStats() {
       }
     }
     events.push({ label: 'raceRecordingEnd()', wc: wcEnd, ptsVal: ct.end });
-    events.push({ label: 'Pre-close', wc: wcd > 0 ? wcd - offset : null, ptsVal: v.duration });
-    const scaleInfo = ct.calibratedStart != null
-      ? 'calibrated'
-      : (scale > 0 ? scale.toFixed(4) : '\u2014');
-    events.push({ label: 'Video time scale', wc: scaleInfo, ptsVal: 'vid/wc', frame: '\u2014', bold: true });
+    events.push({ label: 'Pre-close', wc: ct.wallClockDuration || null, ptsVal: v.duration });
+    events.push({ label: 'Calibration mode', wc: 'trace-only', ptsVal: 'trace ts', frame: '\u2014', bold: true });
 
     function buildTimingRow(ev, bold) {
       const div = document.createElement('div');
@@ -740,19 +551,11 @@ function getSegmentClipTimes(name) {
   return clipTimes.map(ct => {
     if (!ct || ct._wcStart == null || ct._wcEnd == null) return null;
     const m = ct.measurements && ct.measurements.find(m => m.name === name);
-    if (!m || m.startTime == null || m.endTime == null) return null;
-    if (Number.isFinite(m.startTraceTs) && Number.isFinite(m.endTraceTs)) {
-      const startPts = traceTsToClipPts(ct, m.startTraceTs);
-      const endPts = traceTsToClipPts(ct, m.endTraceTs);
-      if (Number.isFinite(startPts) && Number.isFinite(endPts) && endPts > startPts) {
-        return { start: startPts, end: endPts };
-      }
-    }
-    const wcDur = ct._wcEnd - ct._wcStart;
-    if (wcDur <= 0) return null;
-    const ptsDur = ct.end - ct.start;
-    const toPts = wc => ct.start + (wc - ct._wcStart) / wcDur * ptsDur;
-    return { start: toPts(m.startTime), end: toPts(m.endTime) };
+    if (!m || !Number.isFinite(m.startTraceTs) || !Number.isFinite(m.endTraceTs)) return null;
+    const startPts = traceTsToClipPts(ct, m.startTraceTs);
+    const endPts = traceTsToClipPts(ct, m.endTraceTs);
+    if (!Number.isFinite(startPts) || !Number.isFinite(endPts) || endPts <= startPts) return null;
+    return { start: startPts, end: endPts };
   });
 }
 
