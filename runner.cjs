@@ -638,14 +638,14 @@ async function runMarkerMode(page, context, config, barriers, isParallel, shared
     await markTrace(`${traceMarkPrefix}measure:start:${encodeMeasureName(name)}`);
   };
 
-  const endMeasure = async (name = 'default') => {
+  const endMeasure = (name = 'default') => {
     const start = activeMeasurements[name];
     if (start === undefined) return 0;
     const end = (Date.now() - recordingStartTime) / 1000;
     const duration = end - start;
     measurements.push({ name, startTime: start, endTime: end, duration });
     delete activeMeasurements[name];
-    await markTrace(`${traceMarkPrefix}measure:end:${encodeMeasureName(name)}`);
+    queueTraceMark(`${traceMarkPrefix}measure:end:${encodeMeasureName(name)}`);
     showFinishTime(duration);
     return end - start;
   };
@@ -675,8 +675,8 @@ async function runMarkerMode(page, context, config, barriers, isParallel, shared
     }
     await startMeasure(name);
   };
-  page.raceEnd = async (name = 'default') => {
-    const duration = await endMeasure(name);
+  page.raceEnd = (name = 'default') => {
+    const duration = endMeasure(name);
     // Stop metrics measurement when the last measurement ends
     if (metricsCollector && Object.keys(activeMeasurements).length === 0) {
       metricsCollector.stopMeasurement();
@@ -937,7 +937,8 @@ async function runBrowserRecording(config, barriers, isParallel, sharedState, op
     const measurements = traceTiming?.measurements?.length > 0 ? traceTiming.measurements : markerMeasurements;
 
     const clickEvents = await getClickEvents(page);
-    const adjustedClicks = remapClickTimestamps(clickEvents, recordingSegments);
+    const clickSegments = markerSegments.length > 0 ? markerSegments : recordingSegments;
+    const adjustedClicks = remapClickTimestamps(clickEvents, clickSegments);
 
     await context.close();
     const wallClockDuration = (Date.now() - contextCreationStart) / 1000;

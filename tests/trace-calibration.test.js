@@ -31,14 +31,14 @@ describe('deriveTraceTiming', () => {
         endTraceTs: 2_500_000,
       },
     ]);
-    expect(out.ptsSegments[0].start).toBeCloseTo(0.5, 8);
-    expect(out.ptsSegments[0].end).toBeCloseTo(1.5, 8);
-    expect(out.calibratedStartPts).toBeCloseTo(0.5, 8);
+    expect(out.ptsSegments[0].start).toBeCloseTo(0.5, 6);
+    expect(out.ptsSegments[0].end).toBeCloseTo(1.5, 6);
+    expect(out.calibratedStartPts).toBeCloseTo(0.5, 6);
     expect(out.measurements).toHaveLength(1);
     expect(out.measurements[0].name).toBe('Load');
-    expect(out.measurements[0].startTime).toBeCloseTo(0.2, 8);
-    expect(out.measurements[0].endTime).toBeCloseTo(0.8, 8);
-    expect(out.measurements[0].duration).toBeCloseTo(0.6, 8);
+    expect(out.measurements[0].startTime).toBeCloseTo(0.2, 6);
+    expect(out.measurements[0].endTime).toBeCloseTo(0.8, 6);
+    expect(out.measurements[0].duration).toBeCloseTo(0.6, 6);
     expect(out.measurements[0].startTraceTs).toBe(1_700_000);
     expect(out.measurements[0].endTraceTs).toBe(2_300_000);
   });

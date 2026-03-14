@@ -33,7 +33,14 @@ function microsToSeconds(delta) {
 }
 
 function sorted(events) {
-  return events.slice().sort((a, b) => a.ts - b.ts);
+  return events.slice().sort((a, b) => {
+    const av = typeof a === 'number' ? a : Number(a?.ts);
+    const bv = typeof b === 'number' ? b : Number(b?.ts);
+    if (!Number.isFinite(av) && !Number.isFinite(bv)) return 0;
+    if (!Number.isFinite(av)) return 1;
+    if (!Number.isFinite(bv)) return -1;
+    return av - bv;
+  });
 }
 
 function pairRanges(starts, ends) {

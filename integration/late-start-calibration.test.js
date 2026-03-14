@@ -56,14 +56,12 @@ function detectGreenCues(videoPath) {
   return greenFrames;
 }
 
-describe('late-start calibration integration', () => {
+const describeWithFfprobe = hasFfprobe() ? describe : describe.skip;
+
+describeWithFfprobe('late-start calibration integration', () => {
   let resultsDir;
 
   beforeAll(() => {
-    if (!hasFfprobe()) {
-      throw new Error('ffprobe is not installed or not on PATH — skipping late-start tests');
-    }
-
     const projectRoot = path.resolve(__dirname, '..');
     const proc = spawnSync('node', ['race.js', './races/late-start-test', '--serve=false'], {
       cwd: projectRoot,

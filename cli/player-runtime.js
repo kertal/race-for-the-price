@@ -571,7 +571,7 @@ function buildSegmentNav() {
       if (m.name && !seen.has(m.name)) { seen.add(m.name); names.push(m.name); }
     }
   }
-  if (names.length < 2) return;
+  if (names.length < 1) return;
   segmentNavBuilt = true;
   segmentNav.innerHTML = '';
   function makeSegBtn(label, name) {
