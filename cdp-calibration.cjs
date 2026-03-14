@@ -42,7 +42,7 @@ async function createCdpCalibrator(page) {
       quality: 1,
       maxWidth: 1,
       maxHeight: 1,
-      everyNthFrame: 1,
+      everyNthFrame: 3,   // ~8fps — sufficient for interpolation, 3× fewer ACKs
     });
   } catch (e) {
     console.error(`[cdp-calibration] Failed to start screencast: ${e.message}`);
