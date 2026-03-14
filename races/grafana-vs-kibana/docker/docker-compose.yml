@@ -55,6 +55,36 @@ services:
       timeout: 5s
       retries: 30
 
+  # ── Init: set kibana_system password on es-8 before Kibana starts ─────────
+  init-es-8:
+    image: curlimages/curl:latest
+    entrypoint: ["/bin/sh", "-c"]
+    command: >
+      "curl -sf -u elastic:changeme
+      -X POST 'http://es-8:9200/_security/user/kibana_system/_password'
+      -H 'Content-Type: application/json'
+      -d '{\"password\":\"kibana_password\"}'
+      && echo ' kibana_system password set on es-8'"
+    depends_on:
+      es-8:
+        condition: service_healthy
+    restart: "no"
+
+  # ── Init: set kibana_system password on es-latest before Kibana starts ────
+  init-es-latest:
+    image: curlimages/curl:latest
+    entrypoint: ["/bin/sh", "-c"]
+    command: >
+      "curl -sf -u elastic:changeme
+      -X POST 'http://es-latest:9200/_security/user/kibana_system/_password'
+      -H 'Content-Type: application/json'
+      -d '{\"password\":\"kibana_password\"}'
+      && echo ' kibana_system password set on es-latest'"
+    depends_on:
+      es-latest:
+        condition: service_healthy
+    restart: "no"
+
   # ── Kibana August 2024 (8.15.3) ───────────────────────────────────────────
   kibana-2024:
     image: docker.elastic.co/kibana/kibana:8.15.3
@@ -62,12 +92,12 @@ services:
       - "5601:5601"
     environment:
       - ELASTICSEARCH_HOSTS=http://es-8:9200
-      - ELASTICSEARCH_USERNAME=elastic
-      - ELASTICSEARCH_PASSWORD=changeme
+      - ELASTICSEARCH_USERNAME=kibana_system
+      - ELASTICSEARCH_PASSWORD=kibana_password
       - XPACK_FLEET_ENABLED=false
     depends_on:
-      es-8:
-        condition: service_healthy
+      init-es-8:
+        condition: service_completed_successfully
     mem_limit: 1500m
     healthcheck:
       test: ["CMD-SHELL", "curl -sf http://localhost:5601/api/status | grep -q overall"]
@@ -82,12 +112,12 @@ services:
       - "5602:5601"
     environment:
       - ELASTICSEARCH_HOSTS=http://es-latest:9200
-      - ELASTICSEARCH_USERNAME=elastic
-      - ELASTICSEARCH_PASSWORD=changeme
+      - ELASTICSEARCH_USERNAME=kibana_system
+      - ELASTICSEARCH_PASSWORD=kibana_password
       - XPACK_FLEET_ENABLED=false
     depends_on:
-      es-latest:
-        condition: service_healthy
+      init-es-latest:
+        condition: service_completed_successfully
     mem_limit: 1500m
     healthcheck:
       test: ["CMD-SHELL", "curl -sf http://localhost:5601/api/status | grep -q overall"]

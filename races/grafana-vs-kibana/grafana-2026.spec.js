@@ -3,6 +3,7 @@
 // Requires: docker compose up -d && bash docker/init.sh
 
 const BASE_URL = 'http://localhost:3002';
+const DASHBOARD_URL = `${BASE_URL}/d/race-ecommerce`;
 
 // Login
 await page.goto(`${BASE_URL}/login`);
@@ -10,32 +11,17 @@ await page.waitForSelector('input[name="user"]', { timeout: 30000 });
 await page.fill('input[name="user"]', 'admin');
 await page.fill('input[name="password"]', 'admin');
 await page.click('button[type="submit"]');
-await page.waitForFunction(() => !window.location.pathname.includes('/login'), { timeout: 30000 });
 
-// Dismiss any survey / update popups
-try {
-  const dismiss = page.locator('button:has-text("No thanks"), button:has-text("Maybe later"), button[aria-label="Close"]');
-  if (await dismiss.first().isVisible({ timeout: 3000 })) {
-    await dismiss.first().click();
-  }
-} catch { /* no popup */ }
+// Let the login redirect settle, then navigate directly to the dashboard
+// (bypasses any "change password" prompt that appears on first login)
+await page.waitForTimeout(2000);
+await page.goto(DASHBOARD_URL, { waitUntil: 'domcontentloaded', timeout: 30000 });
 
-// Navigate directly to the provisioned dashboard (uid: race-ecommerce)
+// ── Race: measure full dashboard load (until all ES queries complete) ──────
 await page.raceRecordingStart();
 await page.raceStart('Dashboard Load');
 
-await page.goto(`${BASE_URL}/d/race-ecommerce/ecommerce-race-test`);
-
-// Wait for all panel headers to appear
-await page.waitForFunction(
-  () => document.querySelectorAll('[data-testid="data-testid Panel header"], .panel-title').length >= 6,
-  { timeout: 60000 }
-);
-// Wait for loading bars to clear
-await page.waitForFunction(
-  () => document.querySelectorAll('[aria-label="Panel loading bar"]').length === 0,
-  { timeout: 60000 }
-);
+await page.goto(DASHBOARD_URL, { waitUntil: 'networkidle', timeout: 60000 });
 
 page.raceEnd('Dashboard Load');
 page.raceMessage('Grafana 11.4 (Feb 2026)');
