@@ -837,6 +837,9 @@ document.addEventListener('keydown', (e) => {
   else if (e.key === 'Home') { e.preventDefault(); goToStart(); }
   else if (e.key === 'End') { e.preventDefault(); goToEnd(); }
   else if (e.key === 'f' || e.key === 'F') { e.preventDefault(); toggleFullscreen(); }
+  else if (e.key === 's' || e.key === 'S') { e.preventDefault(); setViewMode('solo'); }
+  else if (e.key === 'o' || e.key === 'O') { e.preventDefault(); setViewMode('overlay'); }
+  else if (e.key === 'Escape' && !isFullscreen()) { selectedVideoIdx = -1; updateSelectionUI(); setViewMode('grid'); }
 });
 
 // --- Initial clip seek ---
@@ -1132,6 +1135,67 @@ async function startExport() {
 if (exportBtn) {
   if (raceVideos.length < 2) exportBtn.style.display = 'none';
   exportBtn.addEventListener('click', startExport);
+}
+
+// --- Video selection & view modes ---
+
+let selectedVideoIdx = -1;
+let viewMode = 'grid'; // 'grid' | 'solo' | 'overlay'
+const soloBtn = document.getElementById('soloBtn');
+const overlayBtn = document.getElementById('overlayBtn');
+const overlaySliderRow = document.getElementById('overlaySliderRow');
+const overlaySlider = document.getElementById('overlaySlider');
+const racerEls = playerContainer ? Array.from(playerContainer.querySelectorAll('.racer')) : [];
+
+function selectVideo(idx) {
+  if (selectedVideoIdx === idx) {
+    selectedVideoIdx = -1;
+  } else {
+    selectedVideoIdx = idx;
+  }
+  updateSelectionUI();
+}
+
+function updateSelectionUI() {
+  racerEls.forEach((el, i) => {
+    el.classList.toggle('selected', i === selectedVideoIdx);
+  });
+  playerContainer?.classList.toggle('has-selection', selectedVideoIdx >= 0);
+}
+
+racerEls.forEach((el, i) => {
+  el.addEventListener('click', (e) => {
+    if (e.target.closest('.controls') || e.target.tagName === 'SELECT') return;
+    selectVideo(i);
+  });
+});
+
+function setViewMode(mode) {
+  if (viewMode === mode) mode = 'grid';
+  viewMode = mode;
+  playerContainer?.classList.toggle('solo-view', mode === 'solo');
+  playerContainer?.classList.toggle('overlay-view', mode === 'overlay');
+  soloBtn?.classList.toggle('active', mode === 'solo');
+  overlayBtn?.classList.toggle('active', mode === 'overlay');
+  if (overlaySliderRow) {
+    overlaySliderRow.classList.toggle('visible', mode === 'overlay');
+  }
+  if (mode === 'overlay') {
+    applyOverlayOpacity();
+  }
+}
+
+function applyOverlayOpacity() {
+  const val = (overlaySlider ? overlaySlider.value : 50) / 100;
+  racerEls.forEach((el, i) => {
+    if (i > 0) el.style.opacity = val;
+  });
+}
+
+if (soloBtn) soloBtn.addEventListener('click', () => setViewMode('solo'));
+if (overlayBtn) overlayBtn.addEventListener('click', () => setViewMode('overlay'));
+if (overlaySlider) {
+  overlaySlider.addEventListener('input', applyOverlayOpacity);
 }
 
 // --- Fullscreen mode ---
