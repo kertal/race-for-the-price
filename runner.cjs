@@ -526,7 +526,7 @@ async function runMarkerMode(page, context, config, barriers, isParallel, shared
   // 4px is the smallest size that reliably survives VP8 video compression.
   const CUE_COLOR_START = '#00FF00';
   const CUE_COLOR_END = '#FF0000';
-  const CUE_DURATION_MS = 80;
+  const CUE_DURATION_MS = 200;  // Long enough to be captured even at ~5fps (200ms > 1/5fps = 200ms)
   const CUE_SIZE = 4;
 
   const flashCue = async (color, durationMs) => {
