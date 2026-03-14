@@ -961,7 +961,9 @@ async function runBrowserRecording(config, barriers, isParallel, sharedState, op
     page.setDefaultTimeout(PAGE_TIMEOUT_MS);
     page.setDefaultNavigationTimeout(PAGE_TIMEOUT_MS);
 
-    cdpCalibrator = await createCdpCalibrator(page);
+    if (!noRecording) {
+      cdpCalibrator = await createCdpCalibrator(page);
+    }
 
     await setupClickTracker(context, recordingStartTime);
     await applyThrottling(page, throttle, id);
@@ -977,7 +979,7 @@ async function runBrowserRecording(config, barriers, isParallel, sharedState, op
     const clickEvents = await getClickEvents(page);
     const adjustedClicks = remapClickTimestamps(clickEvents, markerSegments);
 
-    await cdpCalibrator.stop();
+    if (cdpCalibrator) { await cdpCalibrator.stop(); }
 
     await context.close();
     const wallClockDuration = (Date.now() - contextCreationStart) / 1000;
@@ -1021,7 +1023,7 @@ async function runBrowserRecording(config, barriers, isParallel, sharedState, op
     // fall back to ffprobe cue detection for older/headless environments.
     let calibratedStart = null;
     const cdpStart = result?.cdpStartWallMs;
-    if (cdpStart != null && cdpCalibrator.hasData) {
+    if (cdpCalibrator && cdpStart != null && cdpCalibrator.hasData) {
       calibratedStart = cdpCalibrator.wallClockToPts(cdpStart);
       if (calibratedStart != null) {
         console.error(`[${id}] CDP calibrated start PTS: ${calibratedStart.toFixed(3)}s (${cdpCalibrator.sampleCount} samples)`);
