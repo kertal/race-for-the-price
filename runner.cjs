@@ -1021,11 +1021,20 @@ async function runBrowserRecording(config, barriers, isParallel, sharedState, op
 
     const videoFile = getMostRecentVideo(outputDir);
 
-    // Build-time calibration: scale wall-clock recording-start time to PTS using
-    // the ratio of video PTS duration to wall-clock duration. Matches the client-side
-    // conversion in player-runtime.js onMeta(). Fall back to ffprobe cue detection.
+    // Build-time calibration: detect the green cue frame via ffprobe (most accurate,
+    // points to the exact PTS of the visual recording-start marker). Fall back to the
+    // scale formula (wall-clock → PTS conversion matching player-runtime onMeta()).
     let calibratedStart = null;
     if (videoFile && markerSegments.length > 0) {
+      try {
+        const cueData = detectCueFrames(path.join(outputDir, videoFile));
+        calibratedStart = cueTimings(cueData.startCues, cueData.endCues, cueData.frameDuration).calibratedStart;
+        if (calibratedStart != null) {
+          console.error(`[${id}] Cue-calibrated start PTS: ${calibratedStart.toFixed(3)}s`);
+        }
+      } catch (e) { console.error(`[${id}] Cue calibration failed: ${e.message}`); }
+    }
+    if (calibratedStart == null && videoFile && markerSegments.length > 0) {
       calibratedStart = calibratedStartFromScale(
         path.join(outputDir, videoFile),
         markerSegments[0].start, recordingOffset, wallClockDuration,
@@ -1033,15 +1042,6 @@ async function runBrowserRecording(config, barriers, isParallel, sharedState, op
       if (calibratedStart !== null) {
         console.error(`[${id}] Scale-calibrated start PTS: ${calibratedStart.toFixed(3)}s`);
       }
-    }
-    if (calibratedStart == null && videoFile && markerSegments.length > 0) {
-      try {
-        const cueData = detectCueFrames(path.join(outputDir, videoFile));
-        calibratedStart = cueTimings(cueData.startCues, cueData.endCues, cueData.frameDuration).calibratedStart;
-        if (calibratedStart != null) {
-          console.error(`[${id}] Cue-fallback calibrated start PTS: ${calibratedStart.toFixed(3)}s`);
-        }
-      } catch (e) { console.error(`[${id}] Build-time calibration skipped: ${e.message}`); }
     }
 
     return {
