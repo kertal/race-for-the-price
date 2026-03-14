@@ -61,7 +61,7 @@ function buildPlayerScript(config) {
 // ---------------------------------------------------------------------------
 
 export function buildPlayerHtml(summary, videoFiles, altFormat, altFiles, options = {}) {
-  const { fullVideoFiles, mergedVideoFile, traceFiles, runNavigation, medianRunLabel, clipTimes, ffmpegPathPrefix } = options;
+  const { fullVideoFiles, mergedVideoFile, traceFiles, harFiles, runNavigation, medianRunLabel, clipTimes, ffmpegPathPrefix } = options;
   const ffmpegDir = (ffmpegPathPrefix || './') + 'ffmpeg/';
   const racers = summary.racers;
   const count = racers.length;
@@ -159,7 +159,7 @@ export function buildPlayerHtml(summary, videoFiles, altFormat, altFiles, option
     profileSummary: buildProfileSummaryHtml(summary.profileComparison || null, racers),
     profile: buildProfileHtml(summary.profileComparison || null, racers),
     files: buildFilesHtml(racers, videoFiles, {
-      fullVideoFiles, mergedVideoFile, traceFiles, altFormat, altFiles, placementOrder,
+      fullVideoFiles, mergedVideoFile, traceFiles, harFiles, altFormat, altFiles, placementOrder,
     }),
     scriptTag,
   });

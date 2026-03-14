@@ -946,8 +946,10 @@ async function runBrowserRecording(config, barriers, isParallel, sharedState, op
     const viewportHeight = isParallel ? layout.height - 100 : 720;
     const videoScale = slowmo > 0 ? 2 : 1;
     const contextCreationStart = Date.now();
+    const harPath = path.join(outputDir, `${id}.har`);
     context = await browser.newContext({
       recordVideo: { dir: outputDir, size: { width: viewportWidth * videoScale, height: viewportHeight * videoScale } },
+      recordHar: { path: harPath, mode: 'full' },
       viewport: { width: viewportWidth, height: viewportHeight },
     });
     const recordingStartTime = Date.now();
@@ -1022,6 +1024,7 @@ async function runBrowserRecording(config, barriers, isParallel, sharedState, op
       videoPath: videoFile ? path.join(id, videoFile) : null,
       fullVideoPath: fullVideoFile ? path.join(id, fullVideoFile) : null,
       tracePath: tracePath ? path.join(id, path.basename(tracePath)) : null,
+      harPath: fs.existsSync(harPath) ? path.join(id, path.basename(harPath)) : null,
       clickEvents: adjustedClicks,
       measurements,
       profileMetrics,
@@ -1051,6 +1054,7 @@ async function runBrowserRecording(config, barriers, isParallel, sharedState, op
     videoPath: null,
     fullVideoPath: null,
     tracePath: null,
+    harPath: null,
     clickEvents: [],
     measurements: [],
     profileMetrics: null,
