@@ -34,6 +34,7 @@ let activeClip = null;
 let activeSegmentClipTimes = null;
 let activeSegmentName = null;
 let segmentNavBuilt = false;
+const hiddenRacers = new Set();
 const STEP = 0.1;
 let loadedSrcSet = 'race';
 let pendingSeek = null;
@@ -402,6 +403,7 @@ function resolveClip() {
   if (!clipTimes) return null;
   let minStart = Infinity, maxDuration = 0, found = false;
   for (let i = 0; i < clipTimes.length; i++) {
+    if (hiddenRacers.has(i)) continue;
     if (isValidClipEntry(clipTimes[i])) {
       minStart = Math.min(minStart, clipTimes[i].start);
       maxDuration = Math.max(maxDuration, clipTimes[i].end - clipTimes[i].start);
@@ -732,11 +734,49 @@ function buildSegmentNav() {
   segNav.style.display = 'flex';
 }
 
+function buildRacerFilter() {
+  if (raceVideos.length <= 2) return;
+  const filterEl = document.getElementById('racerFilter');
+  if (!filterEl) return;
+  const racerDivs = playerContainer ? playerContainer.querySelectorAll('.racer') : [];
+  for (let i = 0; i < raceVideos.length; i++) {
+    const btn = document.createElement('button');
+    btn.className = 'racer-filter-btn active';
+    btn.style.color = racerColors[i];
+    btn.textContent = racerNames[i];
+    btn.dataset.idx = i;
+    filterEl.appendChild(btn);
+  }
+  filterEl.style.display = 'flex';
+  filterEl.addEventListener('click', (e) => {
+    const btn = e.target.closest('.racer-filter-btn');
+    if (!btn) return;
+    const idx = parseInt(btn.dataset.idx, 10);
+    const isHidden = hiddenRacers.has(idx);
+    const visibleCount = raceVideos.length - hiddenRacers.size;
+    if (!isHidden && visibleCount <= 2) return;
+    if (isHidden) {
+      hiddenRacers.delete(idx);
+      btn.classList.add('active');
+      if (racerDivs[idx]) racerDivs[idx].style.display = '';
+    } else {
+      hiddenRacers.add(idx);
+      btn.classList.remove('active');
+      if (racerDivs[idx]) racerDivs[idx].style.display = 'none';
+    }
+    activeClip = resolveAdjustedClip();
+    seekAll(activeClip ? activeClip.start : 0);
+    scrubber.value = 0;
+    updateTimeDisplay();
+  });
+}
+
 function resolveAdjustedClip() {
   const adj = getAdjustedClipTimes();
   if (!adj) return resolveClip();
   let minStart = Infinity, maxDuration = 0, found = false;
   for (let i = 0; i < adj.length; i++) {
+    if (hiddenRacers.has(i)) continue;
     if (isValidClipEntry(adj[i])) {
       minStart = Math.min(minStart, adj[i].start);
       maxDuration = Math.max(maxDuration, adj[i].end - adj[i].start);
@@ -900,6 +940,10 @@ document.addEventListener('keydown', (e) => {
   else if (e.key === 'Home') { e.preventDefault(); goToStart(); }
   else if (e.key === 'End') { e.preventDefault(); goToEnd(); }
 });
+
+// --- Racer filter (3+ racers only) ---
+
+buildRacerFilter();
 
 // --- Initial clip seek ---
 

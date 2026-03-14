@@ -127,6 +127,27 @@
     border-color: #d4af37;
     font-weight: bold;
   }
+  .racer-filter {
+    display: none;
+    gap: 0.4rem;
+    padding: 0.5rem 0 0;
+    justify-content: center;
+    flex-wrap: wrap;
+  }
+  .racer-filter-btn {
+    border: 1px solid currentColor;
+    border-radius: 4px;
+    padding: 0.3rem 0.9rem;
+    font-size: 0.82rem;
+    cursor: pointer;
+    font-family: 'Courier New', monospace;
+    background: #2a2a2a;
+    transition: opacity 0.2s, background 0.2s;
+    opacity: 0.35;
+  }
+  .racer-filter-btn.active { opacity: 1; }
+  .racer-filter-btn:not(.active):hover { background: #3a3a3a; opacity: 0.6; }
+  .racer-filter-btn.active:hover { background: #3a3a3a; }
   .segment-nav {
     display: none;
     gap: 0.4rem;
@@ -741,6 +762,7 @@
 <template id="build-racer-name"><span class="racer-name" style="color: {{color}}">{{name}}</span></template>
 
 <template id="build-player-section">
+<div id="racerFilter" class="racer-filter"></div>
 <div class="player-container" id="playerContainer">
 {{videoElements}}
 </div>
