@@ -555,9 +555,7 @@ async function main() {
     const { relResults, relHtml } = buildResultsPaths(resultsDir);
     console.error(`  ${c.dim}📂 ${relResults}${c.reset}`);
 
-    if (settings.noRecording) {
-      // No video player to serve — just show results path
-    } else {
+    if (!settings.noRecording) {
       const shouldServe = kvFlags.serve !== 'false';
       if (shouldServe) {
         serveResults(resultsDir);
