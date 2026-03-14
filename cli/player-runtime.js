@@ -237,6 +237,15 @@ function isValidClipEntry(c) {
   return c != null && Number.isFinite(c.start) && Number.isFinite(c.end) && c.start <= c.end;
 }
 
+function hasTraceCalibration(ct) {
+  return !!(ct && ct.traceCalibration && Number.isFinite(ct.traceCalibration.recordingStartTs));
+}
+
+function traceTsToClipPts(ct, traceTs) {
+  if (!hasTraceCalibration(ct) || !Number.isFinite(traceTs) || !Number.isFinite(ct.start)) return null;
+  return ct.start + ((traceTs - ct.traceCalibration.recordingStartTs) / 1e6);
+}
+
 function seekAll(t) {
   const adj = getAdjustedClipTimes();
   const ct = adj || clipTimes;
@@ -257,15 +266,26 @@ function seekAll(t) {
 
 function onMeta() {
   duration = Math.max(...videos.filter(v => v).map(v => v.duration || 0));
+  let convertedAny = false;
   if (clipTimes) {
     for (let i = 0; i < clipTimes.length; i++) {
       if (!isValidClipEntry(clipTimes[i]) || !videos[i] || !videos[i].duration) continue;
       const ct = clipTimes[i];
       if (ct._converted) continue;
+      const wasConverted = !!ct._converted;
       if (ct._wcStart == null) { ct._wcStart = ct.start; ct._wcEnd = ct.end; }
       if (ct.calibratedStart != null) {
         applyCalibrationToClip(ct, ct.calibratedStart, videos[i].duration);
+        if (!wasConverted && ct._converted) convertedAny = true;
         continue;
+      }
+      if (hasTraceCalibration(ct) && Number.isFinite(ct.traceCalibration.firstFrameTs)) {
+        const tracePtsStart = (ct.traceCalibration.recordingStartTs - ct.traceCalibration.firstFrameTs) / 1e6;
+        if (Number.isFinite(tracePtsStart) && tracePtsStart >= 0) {
+          applyCalibrationToClip(ct, tracePtsStart, videos[i].duration);
+          if (!wasConverted && ct._converted) convertedAny = true;
+          continue;
+        }
       }
       const wcd = ct.wallClockDuration;
       const offset = ct.recordingOffset || 0;
@@ -275,6 +295,7 @@ function onMeta() {
         ct.start = (ct.start + offset) * scale;
         ct.end = (ct.end + offset) * scale;
         ct._converted = true;
+        convertedAny = true;
       }
     }
   }
@@ -287,11 +308,17 @@ function onMeta() {
     const fn = pendingSeek;
     pendingSeek = null;
     fn();
+  } else if (convertedAny && !playing) {
+    // If conversion landed after the initial seek was already consumed,
+    // force one seek to the actual clip start to avoid stale startup frame.
+    seekAll(activeClip ? activeClip.start : 0);
+    scrubber.value = 0;
+    updateTimeDisplay();
   }
 
   if (!canvasCalibrationStarted && clipTimes &&
       raceVideos.every(v => !v || v.readyState >= 1)) {
-    const needsCalibration = clipTimes.some(ct => ct && ct.calibratedStart == null);
+    const needsCalibration = clipTimes.some(ct => ct && ct.calibratedStart == null && !hasTraceCalibration(ct));
     if (needsCalibration) {
       canvasCalibrationStarted = true;
       const applyCalibrationResult = () => {
@@ -593,8 +620,18 @@ function updateDebugStats() {
     const measurements = ct.measurements || [];
     for (let m = 0; m < measurements.length; m++) {
       const meas = measurements[m];
-      if (meas.startTime != null) events.push({ label: 'raceStart("' + (meas.name || '') + '")', wc: meas.startTime, ptsVal: toPts(meas.startTime) });
-      if (meas.endTime != null) events.push({ label: 'raceEnd("' + (meas.name || '') + '")', wc: meas.endTime, ptsVal: toPts(meas.endTime) });
+      const startPts = Number.isFinite(meas.startTraceTs)
+        ? traceTsToClipPts(ct, meas.startTraceTs)
+        : (meas.startTime != null ? toPts(meas.startTime) : null);
+      const endPts = Number.isFinite(meas.endTraceTs)
+        ? traceTsToClipPts(ct, meas.endTraceTs)
+        : (meas.endTime != null ? toPts(meas.endTime) : null);
+      if (meas.startTime != null || Number.isFinite(meas.startTraceTs)) {
+        events.push({ label: 'raceStart("' + (meas.name || '') + '")', wc: meas.startTime, ptsVal: startPts });
+      }
+      if (meas.endTime != null || Number.isFinite(meas.endTraceTs)) {
+        events.push({ label: 'raceEnd("' + (meas.name || '') + '")', wc: meas.endTime, ptsVal: endPts });
+      }
     }
     events.push({ label: 'raceRecordingEnd()', wc: wcEnd, ptsVal: ct.end });
     events.push({ label: 'Pre-close', wc: wcd > 0 ? wcd - offset : null, ptsVal: v.duration });
@@ -688,6 +725,13 @@ function getSegmentClipTimes(name) {
     if (!ct || ct._wcStart == null || ct._wcEnd == null) return null;
     const m = ct.measurements && ct.measurements.find(m => m.name === name);
     if (!m || m.startTime == null || m.endTime == null) return null;
+    if (Number.isFinite(m.startTraceTs) && Number.isFinite(m.endTraceTs)) {
+      const startPts = traceTsToClipPts(ct, m.startTraceTs);
+      const endPts = traceTsToClipPts(ct, m.endTraceTs);
+      if (Number.isFinite(startPts) && Number.isFinite(endPts) && endPts > startPts) {
+        return { start: startPts, end: endPts };
+      }
+    }
     const wcDur = ct._wcEnd - ct._wcStart;
     if (wcDur <= 0) return null;
     const ptsDur = ct.end - ct.start;
@@ -948,15 +992,34 @@ buildRacerFilter();
 // --- Initial clip seek ---
 
 if (clipTimes) {
-  activeClip = resolveAdjustedClip();
-  if (activeClip) {
-    const initSeek = () => {
-      seekAll(activeClip.start);
-      updateTimeDisplay();
-    };
-    if (primary.readyState >= 1) initSeek();
-    else primary.addEventListener('loadedmetadata', initSeek);
+  const initSeek = () => {
+    activeClip = resolveAdjustedClip();
+    seekAll(activeClip ? activeClip.start : 0);
+    scrubber.value = 0;
+    updateTimeDisplay();
+  };
+  pendingSeek = initSeek;
+  if (raceVideos.every(v => !v || v.readyState >= 1)) {
+    // If metadata loaded before listeners attached, run one onMeta() pass
+    // explicitly so clip conversions/calibration are applied on first paint.
+    onMeta();
   }
+}
+
+// Kick an initial metadata pass in case loadedmetadata fired before listeners
+// were attached (e.g. cache-fast loads). Wait until all race videos expose
+// metadata so conversion/calibration can actually run.
+{
+  let attempts = 0;
+  const runInitialMetaPass = () => {
+    if (raceVideos.every(v => !v || v.readyState >= 1)) {
+      onMeta();
+      return;
+    }
+    attempts++;
+    if (attempts < 120) setTimeout(runInitialMetaPass, 50);
+  };
+  runInitialMetaPass();
 }
 
 // --- Export: client-side side-by-side video stitching ---

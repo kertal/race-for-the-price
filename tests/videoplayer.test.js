@@ -501,6 +501,35 @@ describe('buildPlayerHtml clipTimes', () => {
     expect(html).toContain('ct._ptsScale = scale');
   });
 
+  it('embeds trace calibration and uses trace-based conversion when present', () => {
+    const clips = [
+      {
+        start: 1,
+        end: 3,
+        recordingOffset: 0.1,
+        wallClockDuration: 5,
+        calibratedStart: null,
+        traceCalibration: { firstFrameTs: 1_000_000, lastFrameTs: 2_000_000, recordingStartTs: 1_100_000, recordingEndTs: 1_900_000 },
+        measurements: [{ name: 'Load', startTime: 1.2, endTime: 2.1, startTraceTs: 1_200_000, endTraceTs: 1_600_000 }],
+      },
+      {
+        start: 1,
+        end: 3,
+        recordingOffset: 0.1,
+        wallClockDuration: 5,
+        calibratedStart: null,
+        traceCalibration: { firstFrameTs: 1_000_000, lastFrameTs: 2_000_000, recordingStartTs: 1_100_000, recordingEndTs: 1_900_000 },
+        measurements: [{ name: 'Load', startTime: 1.3, endTime: 2.2, startTraceTs: 1_250_000, endTraceTs: 1_650_000 }],
+      },
+    ];
+    const html = withClips(clips);
+    expect(html).toContain('"traceCalibration"');
+    expect(html).toContain('hasTraceCalibration(ct)');
+    expect(html).toContain('traceTsToClipPts');
+    expect(html).toContain('ct.calibratedStart == null && !hasTraceCalibration(ct)');
+    expect(html).toContain('traceCalibration.firstFrameTs');
+  });
+
   it('re-throws SecurityError from detectGreenCuePts for blob fallback', () => {
     const clips = [
       { start: 1, end: 3, recordingOffset: 0.1, wallClockDuration: 5 },

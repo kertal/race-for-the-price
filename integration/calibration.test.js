@@ -1,7 +1,7 @@
 /**
- * Integration test: verify that build-time ffprobe calibration values are
+ * Integration test: verify that build-time calibration values are
  * applied correctly in the HTML player, and that the canvas-based fallback
- * is wired up for when build-time calibration is unavailable.
+ * is wired up only when neither build-time nor trace calibration is available.
  *
  * Uses Playwright to load generated index.html pages with known clip times
  * and evaluate the player's runtime behavior.
@@ -34,6 +34,11 @@ const videoFiles = ['alpha/alpha.race.webm', 'bravo/bravo.race.webm'];
 const calibratedClipTimes = [
   { start: 2.0, end: 10.0, recordingOffset: 0.01, wallClockDuration: 12.0, calibratedStart: 3.52 },
   { start: 1.8, end: 9.5, recordingOffset: 0.02, wallClockDuration: 11.5, calibratedStart: 2.0 },
+];
+
+const traceCalibratedClipTimes = [
+  { start: 2.0, end: 10.0, recordingOffset: 0.01, wallClockDuration: 12.0, calibratedStart: null, traceCalibration: { recordingStartTs: 2_000_000, firstFrameTs: 1_900_000 } },
+  { start: 1.8, end: 9.5, recordingOffset: 0.02, wallClockDuration: 11.5, calibratedStart: null, traceCalibration: { recordingStartTs: 3_000_000, firstFrameTs: 2_800_000 } },
 ];
 
 const uncalibratedClipTimes = [
@@ -130,16 +135,29 @@ describe('calibration integration', () => {
     expect(result.hasContinue).toBe(true);
   });
 
-  it('skips canvas calibration when all clips have build-time calibratedStart', async () => {
+  it('skips canvas calibration when clips are build-time or trace calibrated', async () => {
     if (!page) return;
 
-    buildAndWrite(calibratedClipTimes);
+    buildAndWrite(traceCalibratedClipTimes);
     await page.goto(`file://${path.join(tmpDir, 'index.html')}`);
 
     const result = await extractFromScripts(() => {
+      const clipTimesMatch = [...document.querySelectorAll('script')]
+        .map(s => s.textContent.match(/const clipTimes = (\[.*?\]);/))
+        .find(Boolean);
+      const parsedClipTimes = clipTimesMatch ? JSON.parse(clipTimesMatch[1]) : null;
+      const hasTraceCalibration = ct => !!(ct && ct.traceCalibration && Number.isFinite(ct.traceCalibration.recordingStartTs));
+      const needsCalibration = parsedClipTimes
+        ? parsedClipTimes.some(ct => ct && ct.calibratedStart == null && !hasTraceCalibration(ct))
+        : null;
+
       for (const s of document.querySelectorAll('script')) {
         if (s.textContent.includes('needsCalibration')) {
-          return { hasCheck: s.textContent.includes("clipTimes.some(ct => ct && ct.calibratedStart == null)") };
+          return {
+            hasCheck: s.textContent.includes("clipTimes.some(ct => ct && ct.calibratedStart == null && !hasTraceCalibration(ct))"),
+            hasTraceFixtures: Array.isArray(parsedClipTimes) && parsedClipTimes.every(ct => !!ct.traceCalibration),
+            needsCalibration,
+          };
         }
       }
       return null;
@@ -147,6 +165,8 @@ describe('calibration integration', () => {
 
     expect(result).toBeTruthy();
     expect(result.hasCheck).toBe(true);
+    expect(result.hasTraceFixtures).toBe(true);
+    expect(result.needsCalibration).toBe(false);
   });
 
   it('falls back to canvas calibration when calibratedStart is null', async () => {
