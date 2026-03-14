@@ -31,6 +31,9 @@ const speedSelect = document.getElementById('speedSelect');
 let playing = false;
 let duration = 0;
 let activeClip = null;
+let activeSegmentClipTimes = null;
+let activeSegmentName = null;
+let segmentNavBuilt = false;
 const STEP = 0.1;
 let loadedSrcSet = 'race';
 let pendingSeek = null;
@@ -274,7 +277,8 @@ function onMeta() {
       }
     }
   }
-  activeClip = resolveClip();
+  activeClip = resolveAdjustedClip();
+  buildSegmentNav();
   updateTimeDisplay();
   updateDebugStats();
 
@@ -290,7 +294,13 @@ function onMeta() {
     if (needsCalibration) {
       canvasCalibrationStarted = true;
       const applyCalibrationResult = () => {
+        // Recompute segment clip times: canvas calibration may have changed
+        // ct.start/ct.end via applyCalibrationToClip(), invalidating cached PTS.
+        if (activeSegmentName !== null) {
+          activeSegmentClipTimes = getSegmentClipTimes(activeSegmentName);
+        }
         activeClip = resolveAdjustedClip();
+        buildSegmentNav();
         updateTimeDisplay();
         updateDebugStats();
         if (activeClip) { seekAll(activeClip.start); scrubber.value = 0; }
@@ -662,11 +672,64 @@ const FRAME_STEP = 0.04;
 const debugOffsets = raceVideos.map(() => 0);
 
 function getAdjustedClipTimes() {
-  if (!clipTimes) return null;
-  return clipTimes.map((ct, i) => {
+  const base = activeSegmentClipTimes || clipTimes;
+  if (!base) return null;
+  return base.map((ct, i) => {
     if (!ct) return null;
     return { start: ct.start + debugOffsets[i], end: ct.end };
   });
+}
+
+function getSegmentClipTimes(name) {
+  if (!clipTimes) return null;
+  return clipTimes.map(ct => {
+    if (!ct || ct._wcStart == null || ct._wcEnd == null) return null;
+    const m = ct.measurements && ct.measurements.find(m => m.name === name);
+    if (!m || m.startTime == null || m.endTime == null) return null;
+    const wcDur = ct._wcEnd - ct._wcStart;
+    if (wcDur <= 0) return null;
+    const ptsDur = ct.end - ct.start;
+    const toPts = wc => ct.start + (wc - ct._wcStart) / wcDur * ptsDur;
+    return { start: toPts(m.startTime), end: toPts(m.endTime) };
+  });
+}
+
+function buildSegmentNav() {
+  if (segmentNavBuilt || !clipTimes) return;
+  const segNav = document.getElementById('segmentNav');
+  if (!segNav) return;
+  if (!clipTimes.every(ct => !ct || ct._wcStart != null)) return;
+  const seen = new Set();
+  const names = [];
+  for (const ct of clipTimes) {
+    if (!ct || !ct.measurements) continue;
+    for (const m of ct.measurements) {
+      if (m.name && !seen.has(m.name)) { seen.add(m.name); names.push(m.name); }
+    }
+  }
+  if (names.length < 2) return;
+  segmentNavBuilt = true;
+  segNav.innerHTML = '';
+  function makeSegBtn(label, name) {
+    const btn = document.createElement('button');
+    btn.className = 'segment-btn' + (name === null ? ' active' : '');
+    btn.textContent = label;
+    btn.addEventListener('click', () => {
+      segNav.querySelectorAll('.segment-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      if (playing) { videos.forEach(v => v?.pause()); playing = false; playBtn.textContent = '\u25B6'; }
+      activeSegmentName = name;
+      activeSegmentClipTimes = name !== null ? getSegmentClipTimes(name) : null;
+      activeClip = resolveAdjustedClip();
+      seekAll(activeClip ? activeClip.start : 0);
+      scrubber.value = 0;
+      updateTimeDisplay();
+    });
+    return btn;
+  }
+  segNav.appendChild(makeSegBtn('All', null));
+  for (const name of names) segNav.appendChild(makeSegBtn(name, name));
+  segNav.style.display = 'flex';
 }
 
 function resolveAdjustedClip() {

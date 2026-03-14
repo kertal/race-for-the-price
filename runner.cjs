@@ -19,7 +19,6 @@ const fs = require('fs');
 const path = require('path');
 const { execFileSync } = require('child_process');
 const { waitForStability } = require('./visual-stability.cjs');
-const { createCdpCalibrator } = require('./cdp-calibration.cjs');
 const { cueTimings } = require('./cue-timings.cjs');
 
 // Track active browsers/contexts for cleanup on SIGTERM/SIGINT
@@ -511,14 +510,13 @@ function sanitizeScript(script) {
  *
  * Returns { segments, measurements } for video trimming and result comparison.
  */
-async function runMarkerMode(page, context, config, barriers, isParallel, sharedState, recordingStartTime, noOverlay = false, metricsCollector = null, cdpCalibrator = null) {
+async function runMarkerMode(page, context, config, barriers, isParallel, sharedState, recordingStartTime, noOverlay = false, metricsCollector = null) {
   const { id, script: raceScript } = config;
 
   const segments = [];
   let currentSegmentStart = null;
   const measurements = [];
   const activeMeasurements = {};
-  let cdpStartWallMs = null;
 
   // --- Visual cues for frame-accurate trimming / calibration ---
   // Always injected into every recording. A tiny colored square in the top-left
@@ -646,8 +644,11 @@ async function runMarkerMode(page, context, config, barriers, isParallel, shared
       if (result?.aborted) return;
     }
     const startWallMs = Date.now();
-    if (cdpStartWallMs === null) cdpStartWallMs = startWallMs;
     currentSegmentStart = (startWallMs - recordingStartTime) / 1000;
+    // Inject a performance mark into the page at the exact moment recording
+    // begins. The mark appears in the already-running trace with a precise
+    // base::TimeTicks timestamp, used post-race by calibratedStartFromTrace().
+    page.evaluate(() => performance.mark('race:cdpstart')).catch(() => {});
     await flashCue(CUE_COLOR_START);
     await showRecordingIndicator();
   };
@@ -779,7 +780,7 @@ async function runMarkerMode(page, context, config, barriers, isParallel, shared
     }
   }
 
-  if (!raceScript || raceScript.trim() === '') return { segments: [], measurements: [], cdpStartWallMs: null };
+  if (!raceScript || raceScript.trim() === '') return { segments: [], measurements: [] };
 
   // SECURITY: Race scripts execute with the full privileges of this Node.js
   // process. Only run scripts you trust — this is equivalent to `node <file>`.
@@ -807,7 +808,7 @@ async function runMarkerMode(page, context, config, barriers, isParallel, shared
   }
 
   await page.waitForTimeout(POST_RACE_WAIT_MS);
-  return { segments, measurements, cdpStartWallMs };
+  return { segments, measurements };
 }
 
 // --- Network & CPU throttling ---
@@ -882,7 +883,7 @@ function calculateWindowLayout(index, total) {
 
 async function startProfiling(page, browser, id) {
   const metricsCollector = await setupMetricsCollection(page, id);
-  await browser.startTracing(page, { screenshots: true, categories: ['devtools.timeline'] });
+  await browser.startTracing(page, { screenshots: true, categories: ['devtools.timeline', 'blink.user_timing'] });
   return metricsCollector;
 }
 
@@ -897,6 +898,51 @@ async function collectProfilingResults(browser, metricsCollector, outputDir, id)
   fs.writeFileSync(tracePath, traceBuffer);
   console.error(`[${id}] Performance trace saved: ${tracePath}`);
   return { tracePath, profileMetrics };
+}
+
+/**
+ * Compute calibratedStart (seconds into the video where recording began)
+ * by analysing the already-collected performance trace.
+ *
+ * Strategy:
+ *   • The trace's first Screenshot event is our proxy for the first video
+ *     frame — both are driven by the same renderer commit on base::TimeTicks.
+ *   • A performance.mark('race:cdpstart') injected at startRecording() time
+ *     appears in the trace as a blink.user_timing event with a precise ts.
+ *   • calibratedStart = (markTs − firstScreenshotTs) / 1e6  (µs → seconds)
+ *
+ * Falls back to null if either anchor is missing.
+ *
+ * @param {string} tracePath  Absolute path to the saved trace JSON.
+ * @returns {number|null}
+ */
+function calibratedStartFromTrace(tracePath) {
+  let events;
+  try {
+    const raw = fs.readFileSync(tracePath, 'utf8');
+    const data = JSON.parse(raw);
+    events = data.traceEvents || data;
+  } catch {
+    return null;
+  }
+
+  // Single pass: find first screenshot (proxy for first video frame) and the
+  // performance.mark('race:cdpstart') event. Exit early once both are found.
+  let firstScreenshot = null;
+  let mark = null;
+  for (const e of events) {
+    if (!firstScreenshot && e.cat === 'disabled-by-default-devtools.screenshot') {
+      firstScreenshot = e;
+    }
+    if (!mark && e.name === 'race:cdpstart' && e.cat === 'blink.user_timing') {
+      mark = e;
+    }
+    if (firstScreenshot && mark) break;
+  }
+  if (!firstScreenshot || !mark) return null;
+
+  const result = (mark.ts - firstScreenshot.ts) / 1e6;
+  return result >= 0 ? result : null;
 }
 
 function trimVideoWithFfmpeg(outputDir, markerSegments, id) {
@@ -925,7 +971,6 @@ async function runBrowserRecording(config, barriers, isParallel, sharedState, op
   const outputDir = recordingsDir ? path.join(recordingsDir, id) : path.join(__dirname, 'recordings', id);
   let browser = null;
   let context = null;
-  let cdpCalibrator = null;
   let error = null;
 
   fs.mkdirSync(outputDir, { recursive: true });
@@ -958,14 +1003,12 @@ async function runBrowserRecording(config, barriers, isParallel, sharedState, op
     page.setDefaultTimeout(PAGE_TIMEOUT_MS);
     page.setDefaultNavigationTimeout(PAGE_TIMEOUT_MS);
 
-    cdpCalibrator = await createCdpCalibrator(page);
-
     await setupClickTracker(context, recordingStartTime);
     await applyThrottling(page, throttle, id);
 
     const metricsCollector = await startProfiling(page, browser, id);
 
-    const result = await runMarkerMode(page, context, config, barriers, isParallel, sharedState, recordingStartTime, noOverlay, metricsCollector, cdpCalibrator);
+    const result = await runMarkerMode(page, context, config, barriers, isParallel, sharedState, recordingStartTime, noOverlay, metricsCollector);
     const markerSegments = result?.segments || [];
     const measurements = result?.measurements || [];
 
@@ -973,8 +1016,6 @@ async function runBrowserRecording(config, barriers, isParallel, sharedState, op
 
     const clickEvents = await getClickEvents(page);
     const adjustedClicks = remapClickTimestamps(clickEvents, markerSegments);
-
-    await cdpCalibrator.stop();
 
     await context.close();
     const wallClockDuration = (Date.now() - contextCreationStart) / 1000;
@@ -997,15 +1038,11 @@ async function runBrowserRecording(config, barriers, isParallel, sharedState, op
 
     const videoFile = getMostRecentVideo(outputDir);
 
-    // Build-time calibration: prefer CDP screencast timestamp mapping,
+    // Build-time calibration: use trace performance.mark for precise start offset,
     // fall back to ffprobe cue detection for older/headless environments.
-    let calibratedStart = null;
-    const cdpStart = result?.cdpStartWallMs;
-    if (cdpStart != null && cdpCalibrator.hasData) {
-      calibratedStart = cdpCalibrator.wallClockToPts(cdpStart);
-      if (calibratedStart != null) {
-        console.error(`[${id}] CDP calibrated start PTS: ${calibratedStart.toFixed(3)}s (${cdpCalibrator.sampleCount} samples)`);
-      }
+    let calibratedStart = calibratedStartFromTrace(tracePath);
+    if (calibratedStart !== null) {
+      console.error(`[${id}] Trace-calibrated start PTS: ${calibratedStart.toFixed(3)}s`);
     }
     if (calibratedStart == null && videoFile && markerSegments.length > 0) {
       try {
@@ -1042,7 +1079,6 @@ async function runBrowserRecording(config, barriers, isParallel, sharedState, op
     }
   }
 
-  if (cdpCalibrator) { try { await cdpCalibrator.stop(); } catch {} }
   if (context) { try { await context.close(); } catch {} }
   if (browser) { try { await browser.close(); } catch {} }
 
