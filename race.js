@@ -141,11 +141,17 @@ export async function runSingleRace(ctx, runDir, runNavigation = null, raceOptio
       try {
         fs.copyFileSync(path.join(ctx.raceDir, f), path.join(runDir, f));
         raceScriptFiles.push(f);
-      } catch {}
+      } catch (e) {
+        console.error(`${c.dim}Warning: Could not copy race script ${f}: ${e.message}${c.reset}`);
+      }
     }
     const srcSettings = path.join(ctx.raceDir, 'settings.json');
     if (fs.existsSync(srcSettings)) {
-      try { fs.copyFileSync(srcSettings, path.join(runDir, 'settings.json')); } catch {}
+      try {
+        fs.copyFileSync(srcSettings, path.join(runDir, 'settings.json'));
+      } catch (e) {
+        console.error(`${c.dim}Warning: Could not copy settings.json: ${e.message}${c.reset}`);
+      }
     }
   }
 

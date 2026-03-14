@@ -1135,15 +1135,16 @@ if (exportBtn) {
 
 // --- Export HTML: self-contained zip with videos, profiles, baked adjustments ---
 
+const _crc32Table = new Uint32Array(256);
+for (let i = 0; i < 256; i++) {
+  let c = i;
+  for (let j = 0; j < 8; j++) c = c & 1 ? 0xEDB88320 ^ (c >>> 1) : c >>> 1;
+  _crc32Table[i] = c;
+}
+
 function crc32(data) {
-  const table = new Uint32Array(256);
-  for (let i = 0; i < 256; i++) {
-    let c = i;
-    for (let j = 0; j < 8; j++) c = c & 1 ? 0xEDB88320 ^ (c >>> 1) : c >>> 1;
-    table[i] = c;
-  }
   let crc = 0xFFFFFFFF;
-  for (let i = 0; i < data.length; i++) crc = table[(crc ^ data[i]) & 0xFF] ^ (crc >>> 8);
+  for (let i = 0; i < data.length; i++) crc = _crc32Table[(crc ^ data[i]) & 0xFF] ^ (crc >>> 8);
   return (crc ^ 0xFFFFFFFF) >>> 0;
 }
 
@@ -1167,7 +1168,7 @@ function createZip(files) {
   for (const e of entries) {
     view.setUint32(pos, 0x04034b50, true); pos += 4;
     view.setUint16(pos, 20, true); pos += 2;
-    view.setUint16(pos, 0, true); pos += 2;
+    view.setUint16(pos, 0x0800, true); pos += 2; // UTF-8 flag
     view.setUint16(pos, 0, true); pos += 2;
     view.setUint16(pos, 0, true); pos += 2;
     view.setUint16(pos, 0x5421, true); pos += 2;
@@ -1183,7 +1184,7 @@ function createZip(files) {
     view.setUint32(pos, 0x02014b50, true); pos += 4;
     view.setUint16(pos, 20, true); pos += 2;
     view.setUint16(pos, 20, true); pos += 2;
-    view.setUint16(pos, 0, true); pos += 2;
+    view.setUint16(pos, 0x0800, true); pos += 2; // UTF-8 flag
     view.setUint16(pos, 0, true); pos += 2;
     view.setUint16(pos, 0, true); pos += 2;
     view.setUint16(pos, 0x5421, true); pos += 2;
@@ -1219,9 +1220,11 @@ function buildExportHtml() {
   const calBtn = doc.querySelector('#modeDebug');
   if (calBtn) calBtn.remove();
 
-  // Remove Export HTML button (already exported)
+  // Remove export buttons (HTML export already done, video export needs ffmpeg assets not in ZIP)
   const htmlBtn = doc.querySelector('#exportHtmlBtn');
   if (htmlBtn) htmlBtn.remove();
+  const expBtn = doc.querySelector('#exportBtn');
+  if (expBtn) expBtn.remove();
 
   // Remove any active export overlays
   doc.querySelectorAll('.export-overlay').forEach(el => el.remove());
@@ -1275,9 +1278,9 @@ async function startHtmlExport() {
   const statusEl = overlay.querySelector('.export-status');
   const actionsEl = overlay.querySelector('.export-actions');
 
-  let cancelled = false;
+  const abortCtrl = new AbortController();
   overlay.querySelector('.export-cancel').addEventListener('click', () => {
-    cancelled = true;
+    abortCtrl.abort();
     overlay.remove();
   });
 
@@ -1299,33 +1302,35 @@ async function startHtmlExport() {
   filePaths.add('summary.json');
 
   const zipFiles = [];
+  const failedFiles = [];
   let fetched = 0;
   const total = filePaths.size;
 
   for (const filePath of filePaths) {
-    if (cancelled) return;
+    if (abortCtrl.signal.aborted) return;
     fetched++;
     statusEl.textContent = 'Fetching ' + filePath + ' (' + fetched + '/' + total + ')';
     progressFill.style.width = (fetched / total * 80).toFixed(0) + '%';
     try {
-      const resp = await fetch(filePath);
+      const resp = await fetch(filePath, { signal: abortCtrl.signal });
       if (resp.ok) {
         const data = new Uint8Array(await resp.arrayBuffer());
         zipFiles.push({ name: filePath, data });
+      } else {
+        failedFiles.push(filePath);
       }
     } catch (e) {
-      console.warn('Failed to fetch ' + filePath + ':', e.message);
+      if (e.name === 'AbortError') return;
+      failedFiles.push(filePath);
     }
   }
 
-  if (cancelled) return;
+  if (abortCtrl.signal.aborted) return;
 
   statusEl.textContent = 'Building HTML...';
   progressFill.style.width = '85%';
   const html = buildExportHtml();
   zipFiles.push({ name: 'index.html', data: new TextEncoder().encode(html) });
-
-  if (cancelled) return;
 
   statusEl.textContent = 'Creating ZIP...';
   progressFill.style.width = '95%';
@@ -1333,7 +1338,11 @@ async function startHtmlExport() {
   const blob = new Blob([zipData], { type: 'application/zip' });
   const url = URL.createObjectURL(blob);
 
-  statusEl.textContent = 'Export complete! (' + (blob.size / (1024 * 1024)).toFixed(1) + ' MB)';
+  let statusMsg = 'Export complete! (' + (blob.size / (1024 * 1024)).toFixed(1) + ' MB)';
+  if (failedFiles.length > 0) {
+    statusMsg += '\nSkipped ' + failedFiles.length + ' file(s): ' + failedFiles.join(', ');
+  }
+  statusEl.textContent = statusMsg;
   progressFill.style.width = '100%';
 
   const dlLink = document.createElement('a');
