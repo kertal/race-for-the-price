@@ -98,6 +98,10 @@ function hasTraceCalibration(ct) {
   return !!(ct && ct.traceCalibration && Number.isFinite(ct.traceCalibration.recordingStartTs));
 }
 
+function canApplyTraceCalibration(ct) {
+  return hasTraceCalibration(ct) && Number.isFinite(ct.traceCalibration.firstFrameTs);
+}
+
 function traceTsToClipPts(ct, traceTs) {
   if (!hasTraceCalibration(ct) || !Number.isFinite(traceTs) || !Number.isFinite(ct.start)) return null;
   return ct.start + ((traceTs - ct.traceCalibration.recordingStartTs) / 1e6);
@@ -132,7 +136,7 @@ function onMeta() {
       if (ct._converted) continue;
       const wasConverted = !!ct._converted;
       if (ct._wcStart == null) { ct._wcStart = ct.start; ct._wcEnd = ct.end; }
-      if (!hasTraceCalibration(ct) || !Number.isFinite(ct.traceCalibration.firstFrameTs)) {
+      if (!canApplyTraceCalibration(ct)) {
         failCalibration('Calibration error: missing trace calibration metadata. Please calibrate manually.');
         return;
       }
