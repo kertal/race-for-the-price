@@ -645,10 +645,6 @@ async function runMarkerMode(page, context, config, barriers, isParallel, shared
     }
     const startWallMs = Date.now();
     currentSegmentStart = (startWallMs - recordingStartTime) / 1000;
-    // Inject a performance mark into the page at the exact moment recording
-    // begins. The mark appears in the already-running trace with a precise
-    // base::TimeTicks timestamp, used post-race by calibratedStartFromTrace().
-    page.evaluate(() => performance.mark('race:cdpstart')).catch(() => {});
     await flashCue(CUE_COLOR_START);
     await showRecordingIndicator();
   };
@@ -883,7 +879,7 @@ function calculateWindowLayout(index, total) {
 
 async function startProfiling(page, browser, id) {
   const metricsCollector = await setupMetricsCollection(page, id);
-  await browser.startTracing(page, { screenshots: true, categories: ['devtools.timeline', 'blink.user_timing'] });
+  await browser.startTracing(page, { screenshots: true, categories: ['devtools.timeline'] });
   return metricsCollector;
 }
 
@@ -902,46 +898,33 @@ async function collectProfilingResults(browser, metricsCollector, outputDir, id)
 
 /**
  * Compute calibratedStart (seconds into the video where recording began)
- * by analysing the already-collected performance trace.
+ * using the scale formula: convert the wall-clock recording-start time to
+ * PTS by scaling with the ratio of video PTS duration to wall-clock duration.
  *
- * Strategy:
- *   • The trace's first Screenshot event is our proxy for the first video
- *     frame — both are driven by the same renderer commit on base::TimeTicks.
- *   • A performance.mark('race:cdpstart') injected at startRecording() time
- *     appears in the trace as a blink.user_timing event with a precise ts.
- *   • calibratedStart = (markTs − firstScreenshotTs) / 1e6  (µs → seconds)
+ * This matches the client-side conversion in player-runtime.js onMeta():
+ *   ct.start = (ct.start + recordingOffset) * (videoDuration / wallClockDuration)
  *
- * Falls back to null if either anchor is missing.
- *
- * @param {string} tracePath  Absolute path to the saved trace JSON.
+ * @param {string} videoPath       Absolute path to the video file.
+ * @param {number} segStart        Wall-clock start of recording (s, from recordingStartTime).
+ * @param {number} recordingOffset Seconds from contextCreationStart to recordingStartTime.
+ * @param {number} wallClockDuration Total wall-clock duration (contextCreationStart → close).
  * @returns {number|null}
  */
-function calibratedStartFromTrace(tracePath) {
-  let events;
+function calibratedStartFromScale(videoPath, segStart, recordingOffset, wallClockDuration) {
+  if (!wallClockDuration || wallClockDuration <= 0) return null;
+  let videoDuration;
   try {
-    const raw = fs.readFileSync(tracePath, 'utf8');
-    const data = JSON.parse(raw);
-    events = data.traceEvents || data;
+    const out = execFileSync('ffprobe', [
+      '-v', 'quiet', '-show_entries', 'format=duration',
+      '-of', 'default=noprint_wrappers=1:nokey=1', videoPath,
+    ], { timeout: 15000, stdio: ['pipe', 'pipe', 'pipe'] });
+    videoDuration = parseFloat(out.toString().trim());
   } catch {
     return null;
   }
-
-  // Single pass: find first screenshot (proxy for first video frame) and the
-  // performance.mark('race:cdpstart') event. Exit early once both are found.
-  let firstScreenshot = null;
-  let mark = null;
-  for (const e of events) {
-    if (!firstScreenshot && e.cat === 'disabled-by-default-devtools.screenshot') {
-      firstScreenshot = e;
-    }
-    if (!mark && e.name === 'race:cdpstart' && e.cat === 'blink.user_timing') {
-      mark = e;
-    }
-    if (firstScreenshot && mark) break;
-  }
-  if (!firstScreenshot || !mark) return null;
-
-  const result = (mark.ts - firstScreenshot.ts) / 1e6;
+  if (!isFinite(videoDuration) || videoDuration <= 0) return null;
+  const scale = videoDuration / wallClockDuration;
+  const result = (segStart + recordingOffset) * scale;
   return result >= 0 ? result : null;
 }
 
@@ -1038,11 +1021,18 @@ async function runBrowserRecording(config, barriers, isParallel, sharedState, op
 
     const videoFile = getMostRecentVideo(outputDir);
 
-    // Build-time calibration: use trace performance.mark for precise start offset,
-    // fall back to ffprobe cue detection for older/headless environments.
-    let calibratedStart = calibratedStartFromTrace(tracePath);
-    if (calibratedStart !== null) {
-      console.error(`[${id}] Trace-calibrated start PTS: ${calibratedStart.toFixed(3)}s`);
+    // Build-time calibration: scale wall-clock recording-start time to PTS using
+    // the ratio of video PTS duration to wall-clock duration. Matches the client-side
+    // conversion in player-runtime.js onMeta(). Fall back to ffprobe cue detection.
+    let calibratedStart = null;
+    if (videoFile && markerSegments.length > 0) {
+      calibratedStart = calibratedStartFromScale(
+        path.join(outputDir, videoFile),
+        markerSegments[0].start, recordingOffset, wallClockDuration,
+      );
+      if (calibratedStart !== null) {
+        console.error(`[${id}] Scale-calibrated start PTS: ${calibratedStart.toFixed(3)}s`);
+      }
     }
     if (calibratedStart == null && videoFile && markerSegments.length > 0) {
       try {
