@@ -21,6 +21,14 @@ await page.raceRecordingStart();
 await page.raceStart('Discover Load');
 
 await page.goto(`${BASE_URL}/app/discover`, { waitUntil: 'networkidle', timeout: 60000 });
+// Wait for the histogram chart to finish rendering
+await page.waitForFunction(
+  () => {
+    const chart = document.querySelector('[data-test-subj="discoverChart"], [data-test-subj="unifiedHistogramChart"]');
+    return chart && chart.querySelector('svg, canvas');
+  },
+  { timeout: 60000 }
+);
 
 page.raceEnd('Discover Load');
 page.raceMessage('Kibana 8.15.3 — 2024');

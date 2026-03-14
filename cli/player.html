@@ -127,6 +127,35 @@
     border-color: #d4af37;
     font-weight: bold;
   }
+  .segment-nav {
+    display: none;
+    gap: 0.4rem;
+    padding: 0 0 0.8rem;
+    justify-content: center;
+    flex-wrap: wrap;
+  }
+  .segment-btn {
+    background: #2a2a2a;
+    color: #999;
+    border: 1px solid #555;
+    border-radius: 4px;
+    padding: 0.3rem 0.9rem;
+    font-size: 0.82rem;
+    cursor: pointer;
+    font-family: 'Courier New', monospace;
+    transition: all 0.2s;
+  }
+  .segment-btn:hover {
+    background: #3a3a3a;
+    border-color: #d4af37;
+    color: #e8e0d0;
+  }
+  .segment-btn.active {
+    background: #1a3a1a;
+    color: #7de07d;
+    border-color: #5cb85c;
+    font-weight: bold;
+  }
   .player-container {
     display: flex;
     flex-wrap: wrap;
@@ -717,6 +746,7 @@
 </div>
 {{mergedVideoElement}}
 
+<div id="segmentNav" class="segment-nav"></div>
 <div class="controls">
   <div class="controls-row">
     <button class="frame-btn" id="goStart" title="Go to start (Home)">&#x23EE;</button>
