@@ -58,6 +58,7 @@ export function spawnRunner(ctx) {
   if (settings.slowmo) flags.push(`slowmo:${settings.slowmo}x`);
   if (settings.headless) flags.push('headless');
   if (settings.noOverlay) flags.push('no-overlay');
+  if (settings.noRecording) flags.push('no-recording');
   if (settings.ffmpeg) flags.push('ffmpeg');
 
   const animation = new RaceAnimation(racerNames, flags.join(' · '));
@@ -111,7 +112,7 @@ export function spawnRunner(ctx) {
 /** Run one race, collect results into runDir, return summary. */
 export async function runSingleRace(ctx, runDir, runNavigation = null, raceOptions = {}) {
   const { racerNames, settings } = ctx;
-  const { format, ffmpeg } = settings;
+  const { format, ffmpeg, noRecording } = settings;
   const racerRunDirs = racerNames.map(name => path.join(runDir, name));
   racerRunDirs.forEach(d => fs.mkdirSync(d, { recursive: true }));
 
@@ -121,16 +122,7 @@ export async function runSingleRace(ctx, runDir, runNavigation = null, raceOptio
 
   const result = await spawnRunner(raceCtx);
 
-  const progress = startProgress('Processing recordings…');
-  const results = racerNames.map((name, i) =>
-    moveResults(recordingsDir, name, racerRunDirs[i], result.browsers?.[i] || {})
-  );
-
-  fs.rmSync(recordingsDir, { recursive: true, force: true });
-
-  const summary = buildSummary(racerNames, results, settings, runDir);
-  fs.writeFileSync(path.join(runDir, 'summary.json'), JSON.stringify(summary, null, 2));
-
+  let results, summary, sideBySidePath = null, sideBySideName = null, clipTimes = null;
   // Copy race scripts and settings.json to results directory for export
   const raceScriptFiles = [];
   let settingsFileCopied = false;
@@ -153,73 +145,116 @@ export async function runSingleRace(ctx, runDir, runNavigation = null, raceOptio
       }
     }
   }
-
-  progress.done('Recordings processed');
-
   const ext = FORMAT_EXTENSIONS[format] || FORMAT_EXTENSIONS.webm;
-  let sideBySidePath = null;
-  const sideBySideName = `${racerNames.join('-vs-')}${ext}`;
 
-  if (ffmpeg) {
-    // Order videos by placement (winner first) for side-by-side
-    const placementOrder = getPlacementOrder(summary);
-    const videoPaths = placementOrder.map(i => results[i].videoPath).filter(Boolean);
-    sideBySidePath = createSideBySide(videoPaths, path.join(runDir, sideBySideName), format, settings.slowmo);
-
-    if (format !== 'webm') {
-      const convertProgress = startProgress(`Converting videos to ${format}…`);
-      convertVideos(results, format);
-      convertProgress.done(`Videos converted to ${format}`);
-    }
-  }
-
-  // With --ffmpeg, videos are trimmed and separate full recordings exist.
-  // Without --ffmpeg, the single video IS the full recording — the player handles
-  // virtual trimming via clip times from recordingSegments.
-  let videoFiles, fullVideoFiles, altFiles;
-  if (ffmpeg) {
-    videoFiles = racerNames.map(name => `${name}/${name}.race${FORMAT_EXTENSIONS.webm}`);
-    fullVideoFiles = racerNames.map(name => `${name}/${name}.full${FORMAT_EXTENSIONS.webm}`);
-    altFiles = format !== 'webm' ? racerNames.map(name => `${name}/${name}.race${ext}`) : null;
+  if (noRecording) {
+    // No-recording mode: just save measurements, skip all video processing
+    results = racerNames.map((name, i) => {
+      const b = result.browsers?.[i] || {};
+      let tracePath = null;
+      if (b.tracePath) {
+        const sourceTrace = path.join(recordingsDir, b.tracePath);
+        const targetTraceName = `${name}.trace.json`;
+        const targetTrace = path.join(racerRunDirs[i], targetTraceName);
+        try {
+          if (fs.existsSync(sourceTrace)) {
+            fs.copyFileSync(sourceTrace, targetTrace);
+            tracePath = path.join(name, targetTraceName);
+          } else {
+            console.error(`${c.dim}Warning: Trace file missing for ${name}: ${sourceTrace}${c.reset}`);
+          }
+        } catch (e) {
+          console.error(`${c.dim}Warning: Could not copy trace for ${name}: ${e.message}${c.reset}`);
+        }
+      }
+      const data = {
+        videoPath: null, fullVideoPath: null, tracePath,
+        clickEvents: b.clickEvents || [], measurements: b.measurements || [],
+        profileMetrics: b.profileMetrics || null, error: b.error || null,
+      };
+      fs.writeFileSync(path.join(racerRunDirs[i], 'measurements.json'), JSON.stringify(data.measurements, null, 2));
+      fs.writeFileSync(path.join(racerRunDirs[i], 'clicks.json'), JSON.stringify(data.clickEvents, null, 2));
+      if (data.profileMetrics) fs.writeFileSync(path.join(racerRunDirs[i], 'profile-metrics.json'), JSON.stringify(data.profileMetrics, null, 2));
+      return data;
+    });
+    fs.rmSync(recordingsDir, { recursive: true, force: true });
+    summary = buildSummary(racerNames, results, settings, runDir);
+    fs.writeFileSync(path.join(runDir, 'summary.json'), JSON.stringify(summary, null, 2));
   } else {
-    // Only the full (untrimmed) video exists — use it for both race and full views
-    videoFiles = racerNames.map(name => `${name}/${name}.race${FORMAT_EXTENSIONS.webm}`);
-    fullVideoFiles = null; // same file, no separate full video
-    altFiles = null;       // no format conversion without ffmpeg
-  }
+    const progress = startProgress('Processing recordings…');
+    results = racerNames.map((name, i) =>
+      moveResults(recordingsDir, name, racerRunDirs[i], result.browsers?.[i] || {})
+    );
 
-  const traceFiles = racerNames.map(name => `${name}/${name}.trace.json`);
+    fs.rmSync(recordingsDir, { recursive: true, force: true });
 
-  // Collect clip times from recording segments for player-level trimming (default mode).
-  // Uses only the first segment per racer — multiple non-contiguous segments are not
-  // supported in player-level trimming (--ffmpeg mode concatenates them into one video).
-  const clipTimes = ffmpeg ? null : racerNames.map((_, i) => {
-    const b = result.browsers?.[i];
-    const segs = b?.recordingSegments;
-    if (!segs || segs.length === 0) return null;
-    return {
-      start: segs[0].start,
-      end: segs[0].end,
-      recordingOffset: b?.recordingOffset || 0,
-      wallClockDuration: b?.wallClockDuration || 0,
-      measurements: b?.measurements || [],
-      calibratedStart: b?.calibratedStart ?? null,
-      traceCalibration: b?.traceCalibration || null,
+    summary = buildSummary(racerNames, results, settings, runDir);
+    fs.writeFileSync(path.join(runDir, 'summary.json'), JSON.stringify(summary, null, 2));
+    progress.done('Recordings processed');
+
+    sideBySideName = `${racerNames.join('-vs-')}${ext}`;
+
+    if (ffmpeg) {
+      // Order videos by placement (winner first) for side-by-side
+      const placementOrder = getPlacementOrder(summary);
+      const videoPaths = placementOrder.map(i => results[i].videoPath).filter(Boolean);
+      sideBySidePath = createSideBySide(videoPaths, path.join(runDir, sideBySideName), format, settings.slowmo);
+
+      if (format !== 'webm') {
+        const convertProgress = startProgress(`Converting videos to ${format}…`);
+        convertVideos(results, format);
+        convertProgress.done(`Videos converted to ${format}`);
+      }
+    }
+
+    // With --ffmpeg, videos are trimmed and separate full recordings exist.
+    // Without --ffmpeg, the single video IS the full recording — the player handles
+    // virtual trimming via clip times from recordingSegments.
+    let videoFiles, fullVideoFiles, altFiles;
+    if (ffmpeg) {
+      videoFiles = racerNames.map(name => `${name}/${name}.race${FORMAT_EXTENSIONS.webm}`);
+      fullVideoFiles = racerNames.map(name => `${name}/${name}.full${FORMAT_EXTENSIONS.webm}`);
+      altFiles = format !== 'webm' ? racerNames.map(name => `${name}/${name}.race${ext}`) : null;
+    } else {
+      // Only the full (untrimmed) video exists — use it for both race and full views
+      videoFiles = racerNames.map(name => `${name}/${name}.race${FORMAT_EXTENSIONS.webm}`);
+      fullVideoFiles = null; // same file, no separate full video
+      altFiles = null;       // no format conversion without ffmpeg
+    }
+
+    const traceFiles = racerNames.map(name => `${name}/${name}.trace.json`);
+
+    // Collect clip times from recording segments for player-level trimming (default mode).
+    // Uses only the first segment per racer — multiple non-contiguous segments are not
+    // supported in player-level trimming (--ffmpeg mode concatenates them into one video).
+    clipTimes = ffmpeg ? null : racerNames.map((_, i) => {
+      const b = result.browsers?.[i];
+      const segs = b?.recordingSegments;
+      if (!segs || segs.length === 0) return null;
+      return {
+        start: segs[0].start,
+        end: segs[0].end,
+        recordingOffset: b?.recordingOffset || 0,
+        wallClockDuration: b?.wallClockDuration || 0,
+        measurements: b?.measurements || [],
+        calibratedStart: b?.calibratedStart ?? null,
+        traceCalibration: b?.traceCalibration || null,
+      };
+    });
+
+    const playerOptions = {
+      fullVideoFiles,
+      mergedVideoFile: sideBySidePath ? sideBySideName : null,
+      traceFiles,
+      raceScriptFiles,
+      settingsFileCopied,
+      runNavigation,
+      clipTimes,
+      ffmpegPathPrefix: raceOptions.ffmpegPathPrefix || './',
     };
-  });
-
-  const playerOptions = {
-    fullVideoFiles,
-    mergedVideoFile: sideBySidePath ? sideBySideName : null,
-    traceFiles,
-    raceScriptFiles,
-    settingsFileCopied,
-    runNavigation,
-    clipTimes,
-    ffmpegPathPrefix: raceOptions.ffmpegPathPrefix || './',
-  };
-  fs.writeFileSync(path.join(runDir, 'index.html'), buildPlayerHtml(summary, videoFiles, ffmpeg && format !== 'webm' ? format : null, altFiles, playerOptions));
-  if (!raceOptions.skipCopyFFmpeg && !settings.noWasm) copyFFmpegFiles(runDir);
+    fs.writeFileSync(path.join(runDir, 'index.html'), buildPlayerHtml(summary, videoFiles, ffmpeg && format !== 'webm' ? format : null, altFiles, playerOptions));
+    if (!raceOptions.skipCopyFFmpeg && !settings.noWasm) copyFFmpegFiles(runDir);
+  }
 
   return { summary, sideBySidePath, sideBySideName, clipTimes };
 }
@@ -239,6 +274,7 @@ export function buildRaceContext({ racerNames, scripts, settings, rootDir = __di
     headless: settings.headless,
     slowmo: settings.slowmo,
     noOverlay: settings.noOverlay,
+    noRecording: settings.noRecording,
     ffmpeg: settings.ffmpeg,
   };
 
@@ -425,6 +461,7 @@ ${c.dim}  ───────────────────────�
   node race.js ${c.cyan}<dir>${c.reset} ${c.yellow}--runs${c.reset}=${c.green}3${c.reset}            Run multiple times, report median
   node race.js ${c.cyan}<dir>${c.reset} ${c.yellow}--slowmo${c.reset}=${c.green}2${c.reset}           Slow-motion side-by-side replay (2x, 3x, etc.)
   node race.js ${c.cyan}<dir>${c.reset} ${c.yellow}--no-overlay${c.reset}         Record videos without overlays
+  node race.js ${c.cyan}<dir>${c.reset} ${c.yellow}--no-recording${c.reset}      Skip video recording, just measure
   node race.js ${c.cyan}<dir>${c.reset} ${c.yellow}--ffmpeg${c.reset}             Enable FFmpeg processing (trim, merge, convert)
 
 ${c.dim}  CLI flags override settings.json values.${c.reset}
@@ -477,6 +514,7 @@ settings = applyOverrides(settings, boolFlags, kvFlags);
 settings.parallel = settings.parallel ?? false;
 settings.headless = settings.headless ?? false;
 settings.noOverlay = settings.noOverlay ?? false;
+settings.noRecording = settings.noRecording ?? false;
 settings.ffmpeg = settings.ffmpeg ?? false;
 settings.noWasm = settings.noWasm ?? false;
 settings.format = settings.format ?? 'webm';
@@ -519,32 +557,34 @@ async function main() {
       const medianSummary = buildMedianSummary(summaries, resultsDir);
       fs.writeFileSync(path.join(resultsDir, 'summary.json'), JSON.stringify(medianSummary, null, 2));
 
-      // Find the run closest to median to use its videos on the median page
-      const medianRunIdx = findMedianRunIndex(summaries, medianSummary);
-      const medianRunDir = String(medianRunIdx + 1);
-      const { ffmpeg, format } = settings;
-      const ext = FORMAT_EXTENSIONS[format] || FORMAT_EXTENSIONS.webm;
-      const medianVideoFiles = racerNames.map(name => `${medianRunDir}/${name}/${name}.race${FORMAT_EXTENSIONS.webm}`);
-      const medianFullVideoFiles = ffmpeg ? racerNames.map(name => `${medianRunDir}/${name}/${name}.full${FORMAT_EXTENSIONS.webm}`) : null;
-      const medianAltFiles = ffmpeg && format !== 'webm' ? racerNames.map(name => `${medianRunDir}/${name}/${name}.race${ext}`) : null;
-      const medianMergedFile = sideBySideNames[medianRunIdx] ? `${medianRunDir}/${sideBySideNames[medianRunIdx]}` : null;
+      if (!settings.noRecording) {
+        // Find the run closest to median to use its videos on the median page
+        const medianRunIdx = findMedianRunIndex(summaries, medianSummary);
+        const medianRunDir = String(medianRunIdx + 1);
+        const { ffmpeg, format } = settings;
+        const ext = FORMAT_EXTENSIONS[format] || FORMAT_EXTENSIONS.webm;
+        const medianVideoFiles = racerNames.map(name => `${medianRunDir}/${name}/${name}.race${FORMAT_EXTENSIONS.webm}`);
+        const medianFullVideoFiles = ffmpeg ? racerNames.map(name => `${medianRunDir}/${name}/${name}.full${FORMAT_EXTENSIONS.webm}`) : null;
+        const medianAltFiles = ffmpeg && format !== 'webm' ? racerNames.map(name => `${medianRunDir}/${name}/${name}.race${ext}`) : null;
+        const medianMergedFile = sideBySideNames[medianRunIdx] ? `${medianRunDir}/${sideBySideNames[medianRunIdx]}` : null;
 
-      // Create top-level median index.html with navigation and videos from median run
-      const medianNav = { currentRun: 'median', totalRuns, pathPrefix: '' };
-      const medianPlayerOptions = {
-        fullVideoFiles: medianFullVideoFiles,
-        mergedVideoFile: medianMergedFile,
-        raceScriptFiles: ctx.racerFiles ? ctx.racerFiles.map(f => `${medianRunDir}/${f}`) : null,
-        settingsFileCopied: fs.existsSync(path.join(resultsDir, medianRunDir, 'settings.json')),
-        runNavigation: medianNav,
-        medianRunLabel: `Run ${medianRunIdx + 1}`,
-        clipTimes: allClipTimes[medianRunIdx] || null,
-      };
-      fs.writeFileSync(
-        path.join(resultsDir, 'index.html'),
-        buildPlayerHtml(medianSummary, medianVideoFiles, ffmpeg && format !== 'webm' ? format : null, medianAltFiles, medianPlayerOptions)
-      );
-      if (!settings.noWasm) copyFFmpegFiles(resultsDir);
+        // Create top-level median index.html with navigation and videos from median run
+        const medianNav = { currentRun: 'median', totalRuns, pathPrefix: '' };
+        const medianPlayerOptions = {
+          fullVideoFiles: medianFullVideoFiles,
+          mergedVideoFile: medianMergedFile,
+          raceScriptFiles: ctx.racerFiles ? ctx.racerFiles.map(f => `${medianRunDir}/${f}`) : null,
+          settingsFileCopied: fs.existsSync(path.join(resultsDir, medianRunDir, 'settings.json')),
+          runNavigation: medianNav,
+          medianRunLabel: `Run ${medianRunIdx + 1}`,
+          clipTimes: allClipTimes[medianRunIdx] || null,
+        };
+        fs.writeFileSync(
+          path.join(resultsDir, 'index.html'),
+          buildPlayerHtml(medianSummary, medianVideoFiles, ffmpeg && format !== 'webm' ? format : null, medianAltFiles, medianPlayerOptions)
+        );
+        if (!settings.noWasm) copyFFmpegFiles(resultsDir);
+      }
 
       console.error(`\n  ${c.bold}${c.cyan}── Median Results (${totalRuns} runs) ──${c.reset}`);
       printSummary(medianSummary);
@@ -556,11 +596,13 @@ async function main() {
     const { relResults, relHtml } = buildResultsPaths(resultsDir);
     console.error(`  ${c.dim}📂 ${relResults}${c.reset}`);
 
-    const shouldServe = kvFlags.serve !== 'false';
-    if (shouldServe) {
-      serveResults(resultsDir);
-    } else {
-      console.error(`  ${c.cyan}${c.bold}open ${relHtml}${c.reset}`);
+    if (!settings.noRecording) {
+      const shouldServe = kvFlags.serve !== 'false';
+      if (shouldServe) {
+        serveResults(resultsDir);
+      } else {
+        console.error(`  ${c.cyan}${c.bold}open ${relHtml}${c.reset}`);
+      }
     }
   } catch (e) {
     console.error(`\n${c.red}${c.bold}Race failed:${c.reset} ${e.message}\n`);
@@ -568,6 +610,6 @@ async function main() {
   }
 }
 
-main().then(() => { if (kvFlags.serve === 'false') process.exit(0); });
+main().then(() => { if (kvFlags.serve === 'false' || settings.noRecording) process.exit(0); });
 
 } // end isMainModule
