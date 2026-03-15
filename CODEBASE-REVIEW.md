@@ -399,23 +399,23 @@ The player uses flexbox wrapping and `min-width: 280px` on racer containers, whi
 
 ## 7. Summary of Recommendations
 
-### High Priority
-1. **Add `aria-label` attributes** to icon-only buttons and the scrubber
-2. **Add `decodeURIComponent` + `path.resolve`** to the static file server path handling
-3. **Add `<meta name="color-scheme" content="dark">`** to prevent light-mode flash
-4. **Add `prefers-reduced-motion` media query** for accessibility compliance
-5. **Detect duplicate racer names** in `config.js` to prevent file collisions
+### High Priority — All Resolved in PR #46
+1. ~~**Add `aria-label` attributes** to icon-only buttons and the scrubber~~ — Done, including dynamic play/pause label updates
+2. ~~**Add `decodeURIComponent` + `path.resolve`** to the static file server path handling~~ — Done, with test coverage
+3. ~~**Add `<meta name="color-scheme" content="dark">`** to prevent light-mode flash~~ — Done
+4. ~~**Add `prefers-reduced-motion` media query** for accessibility compliance~~ — Done
+5. ~~**Detect duplicate racer names** in `config.js` to prevent file collisions~~ — Done, throws fatal error with test coverage
 
-### Medium Priority
-6. **Add `playsinline` and `crossorigin="anonymous"`** to video elements
-7. **Pre-compile message regexes** in `race.js` stdout handler
-8. **Consider auto-escaping in `render()`** to prevent future XSS gaps
-9. **Improve color contrast** for info labels (bump `#666` to at least `#999`)
-10. **Add `formatBytes` guard** for negative values
+### Medium Priority — All Resolved in PR #46
+6. ~~**Add `playsinline` and `crossorigin="anonymous"`** to video elements~~ — Done
+7. ~~**Pre-compile message regexes** in `race.js` stdout handler~~ — Done
+8. ~~**Consider auto-escaping in `render()`** to prevent future XSS gaps~~ — Documented security contract in JSDoc (full auto-escape refactor deferred as too invasive)
+9. ~~**Improve color contrast** for info labels (bump `#666` to at least `#999`)~~ — Done
+10. ~~**Add `formatBytes` guard** for negative values~~ — Done
 
-### Low Priority (Nice-to-Have)
-11. Convert runtime HTML string building to template cloning in `player-runtime.js`
-12. Add named constants for remaining magic numbers in animation.js
-13. Add `ui-monospace` to font stack
-14. Add responsive breakpoint for narrow screens
-15. Consider Web Components if the player is ever reused outside this CLI tool
+### Low Priority — Partially Resolved in PR #46
+11. Convert runtime HTML string building to template cloning in `player-runtime.js` — Deferred
+12. ~~Add named constants for remaining magic numbers in animation.js~~ — Done
+13. ~~Add `ui-monospace` to font stack~~ — Done
+14. ~~Add responsive breakpoint for narrow screens~~ — Done
+15. Consider Web Components if the player is ever reused outside this CLI tool — Not applicable currently
