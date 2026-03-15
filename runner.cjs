@@ -1138,6 +1138,7 @@ async function main() {
       videoPath: r.videoPath || null,
       fullVideoPath: r.fullVideoPath || null,
       tracePath: r.tracePath || null,
+      harPath: r.harPath || null,
       clickEvents: r.clickEvents || [],
       measurements: r.measurements || [],
       profileMetrics: r.profileMetrics || null,

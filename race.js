@@ -168,7 +168,10 @@ export async function runSingleRace(ctx, runDir, runNavigation = null, raceOptio
   }
 
   const traceFiles = racerNames.map(name => `${name}/${name}.trace.json`);
-  const harFiles = racerNames.map(name => `${name}/${name}.har`);
+  const harFiles = racerNames.map((name, i) => {
+    const har = results[i]?.harPath;
+    return har ? `${name}/${name}.har` : null;
+  });
 
   // Collect clip times from recording segments for player-level trimming (default mode).
   // Uses only the first segment per racer — multiple non-contiguous segments are not
