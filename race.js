@@ -55,13 +55,17 @@ export function waitForEnter(message) {
     }
 
     process.stderr.write(message);
-    const useRawMode = typeof process.stdin.setRawMode === 'function';
+
+    const setRawModeSafe = (value) => {
+      try { if (typeof process.stdin.setRawMode === 'function') process.stdin.setRawMode(value); }
+      catch (_) { /* stdin may already be destroyed */ }
+    };
 
     const cleanup = () => {
       process.stdin.removeListener('data', onData);
       process.stdin.removeListener('end', onEnd);
       process.stdin.removeListener('error', onEnd);
-      if (useRawMode) process.stdin.setRawMode(false);
+      setRawModeSafe(false);
       process.stdin.pause();
     };
 
@@ -86,7 +90,7 @@ export function waitForEnter(message) {
 
     process.stdin.resume();
     process.stdin.setEncoding('utf8');
-    if (useRawMode) process.stdin.setRawMode(true);
+    setRawModeSafe(true);
     process.stdin.on('data', onData);
     process.stdin.on('end', onEnd);
     process.stdin.on('error', onEnd);

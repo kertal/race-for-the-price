@@ -42,17 +42,36 @@ describe('waitForEnter', () => {
   let origStdin;
   let mockStdin;
 
+  let origSetRawMode;
+
   beforeEach(() => {
     origStdin = {
       isTTY: process.stdin.isTTY,
       readableEnded: process.stdin.readableEnded,
     };
+    origSetRawMode = process.stdin.setRawMode;
   });
 
   afterEach(() => {
     Object.defineProperty(process.stdin, 'isTTY', { value: origStdin.isTTY, writable: true, configurable: true });
     Object.defineProperty(process.stdin, 'readableEnded', { value: origStdin.readableEnded, writable: true, configurable: true });
+    if (origSetRawMode) {
+      process.stdin.setRawMode = origSetRawMode;
+    } else {
+      delete process.stdin.setRawMode;
+    }
   });
+
+  function setupTTYStdin() {
+    Object.defineProperty(process.stdin, 'isTTY', { value: true, writable: true, configurable: true });
+    Object.defineProperty(process.stdin, 'readableEnded', { value: false, writable: true, configurable: true });
+    if (!process.stdin.setRawMode) process.stdin.setRawMode = () => {};
+    const stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => {});
+    const setRawModeSpy = vi.spyOn(process.stdin, 'setRawMode').mockImplementation(() => {});
+    const pauseSpy = vi.spyOn(process.stdin, 'pause').mockImplementation(() => {});
+    const resumeSpy = vi.spyOn(process.stdin, 'resume').mockImplementation(() => {});
+    return { stderrSpy, setRawModeSpy, pauseSpy, resumeSpy };
+  }
 
   it('resolves immediately in non-TTY environments', async () => {
     Object.defineProperty(process.stdin, 'isTTY', { value: false, writable: true, configurable: true });
@@ -69,5 +88,56 @@ describe('waitForEnter', () => {
     await waitForEnter('test prompt ');
     expect(stderrSpy).toHaveBeenCalledWith('test prompt (skipped — non-interactive)\n');
     stderrSpy.mockRestore();
+  });
+
+  it('resolves when Enter key is pressed on a TTY stdin', async () => {
+    const { stderrSpy, setRawModeSpy } = setupTTYStdin();
+
+    const promise = waitForEnter('press enter ');
+    process.stdin.emit('data', '\r');
+    await promise;
+
+    expect(stderrSpy).toHaveBeenCalledWith('press enter ');
+    expect(setRawModeSpy).toHaveBeenCalledWith(true);
+    expect(setRawModeSpy).toHaveBeenCalledWith(false);
+  });
+
+  it('resolves when stdin emits end event', async () => {
+    const { stderrSpy } = setupTTYStdin();
+
+    const promise = waitForEnter('prompt ');
+    process.stdin.emit('end');
+    await promise;
+
+    expect(stderrSpy).toHaveBeenCalledWith('prompt ');
+  });
+
+  it('resolves when stdin emits error event', async () => {
+    setupTTYStdin();
+
+    const promise = waitForEnter('prompt ');
+    process.stdin.emit('error', new Error('test'));
+    await promise;
+  });
+
+  it('sends SIGINT when Ctrl+C is received in raw mode', async () => {
+    setupTTYStdin();
+    const killSpy = vi.spyOn(process, 'kill').mockImplementation(() => {});
+
+    waitForEnter('prompt ');
+    process.stdin.emit('data', '\u0003');
+
+    expect(killSpy).toHaveBeenCalledWith(process.pid, 'SIGINT');
+    killSpy.mockRestore();
+  });
+
+  it('ignores non-Enter keystrokes', async () => {
+    setupTTYStdin();
+
+    const promise = waitForEnter('prompt ');
+    process.stdin.emit('data', 'a');
+    process.stdin.emit('data', 'b');
+    process.stdin.emit('data', '\n');
+    await promise;
   });
 });
