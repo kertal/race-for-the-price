@@ -552,22 +552,22 @@ async function main() {
         const medianAltFiles = ffmpeg && format !== 'webm' ? racerNames.map(name => `${medianRunDir}/${name}/${name}.race${ext}`) : null;
         const medianMergedFile = sideBySideNames[medianRunIdx] ? `${medianRunDir}/${sideBySideNames[medianRunIdx]}` : null;
 
-      // Create top-level median index.html with navigation and videos from median run
-      const medianNav = { currentRun: 'median', totalRuns, pathPrefix: '' };
-      const medianPlayerOptions = {
-        fullVideoFiles: medianFullVideoFiles,
-        mergedVideoFile: medianMergedFile,
-        raceScriptFiles: ctx.racerFiles ? ctx.racerFiles.map(f => `${medianRunDir}/${f}`) : null,
-        settingsFileCopied: fs.existsSync(path.join(resultsDir, medianRunDir, 'settings.json')),
-        runNavigation: medianNav,
-        medianRunLabel: `Run ${medianRunIdx + 1}`,
-        clipTimes: allClipTimes[medianRunIdx] || null,
-      };
-      fs.writeFileSync(
-        path.join(resultsDir, 'index.html'),
-        buildPlayerHtml(medianSummary, medianVideoFiles, ffmpeg && format !== 'webm' ? format : null, medianAltFiles, medianPlayerOptions)
-      );
-      if (!settings.noWasm) copyFFmpegFiles(resultsDir);
+        // Create top-level median index.html with navigation and videos from median run
+        const medianNav = { currentRun: 'median', totalRuns, pathPrefix: '' };
+        const medianPlayerOptions = {
+          fullVideoFiles: medianFullVideoFiles,
+          mergedVideoFile: medianMergedFile,
+          raceScriptFiles: ctx.racerFiles ? ctx.racerFiles.map(f => `${medianRunDir}/${f}`) : null,
+          settingsFileCopied: fs.existsSync(path.join(resultsDir, medianRunDir, 'settings.json')),
+          runNavigation: medianNav,
+          medianRunLabel: `Run ${medianRunIdx + 1}`,
+          clipTimes: allClipTimes[medianRunIdx] || null,
+        };
+        fs.writeFileSync(
+          path.join(resultsDir, 'index.html'),
+          buildPlayerHtml(medianSummary, medianVideoFiles, ffmpeg && format !== 'webm' ? format : null, medianAltFiles, medianPlayerOptions)
+        );
+        if (!settings.noWasm) copyFFmpegFiles(resultsDir);
       }
 
       console.error(`\n  ${c.bold}${c.cyan}── Median Results (${totalRuns} runs) ──${c.reset}`);
