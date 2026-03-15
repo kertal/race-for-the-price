@@ -1142,67 +1142,85 @@ function crc32(data) {
   return (crc ^ 0xFFFFFFFF) >>> 0;
 }
 
-function createZip(files) {
+function createZipBuilder() {
+  const chunks = [];
   const entries = [];
+  const encoder = new TextEncoder();
   let offset = 0;
-  for (const f of files) {
-    const nameBytes = new TextEncoder().encode(f.name);
-    const crc = crc32(f.data);
-    entries.push({ name: nameBytes, data: f.data, crc, offset });
-    offset += 30 + nameBytes.length + f.data.length;
-  }
-  const centralDirOffset = offset;
-  let centralDirSize = 0;
-  entries.forEach(e => centralDirSize += 46 + e.name.length);
-  const totalSize = offset + centralDirSize + 22;
-  const buf = new ArrayBuffer(totalSize);
-  const view = new DataView(buf);
-  const bytes = new Uint8Array(buf);
-  let pos = 0;
-  for (const e of entries) {
+
+  function addFile(name, data) {
+    const nameBytes = encoder.encode(name);
+    const crc = crc32(data);
+    const localHeader = new Uint8Array(30 + nameBytes.length);
+    const view = new DataView(localHeader.buffer);
+    let pos = 0;
     view.setUint32(pos, 0x04034b50, true); pos += 4;
     view.setUint16(pos, 20, true); pos += 2;
     view.setUint16(pos, 0x0800, true); pos += 2; // UTF-8 flag
     view.setUint16(pos, 0, true); pos += 2;
     view.setUint16(pos, 0, true); pos += 2;
     view.setUint16(pos, 0x5421, true); pos += 2;
-    view.setUint32(pos, e.crc, true); pos += 4;
-    view.setUint32(pos, e.data.length, true); pos += 4;
-    view.setUint32(pos, e.data.length, true); pos += 4;
-    view.setUint16(pos, e.name.length, true); pos += 2;
+    view.setUint32(pos, crc, true); pos += 4;
+    view.setUint32(pos, data.length, true); pos += 4;
+    view.setUint32(pos, data.length, true); pos += 4;
+    view.setUint16(pos, nameBytes.length, true); pos += 2;
     view.setUint16(pos, 0, true); pos += 2;
-    bytes.set(e.name, pos); pos += e.name.length;
-    bytes.set(e.data, pos); pos += e.data.length;
+    localHeader.set(nameBytes, pos);
+
+    chunks.push(localHeader, data);
+    entries.push({ name: nameBytes, size: data.length, crc, offset });
+    offset += localHeader.length + data.length;
   }
-  for (const e of entries) {
-    view.setUint32(pos, 0x02014b50, true); pos += 4;
-    view.setUint16(pos, 20, true); pos += 2;
-    view.setUint16(pos, 20, true); pos += 2;
-    view.setUint16(pos, 0x0800, true); pos += 2; // UTF-8 flag
-    view.setUint16(pos, 0, true); pos += 2;
-    view.setUint16(pos, 0, true); pos += 2;
-    view.setUint16(pos, 0x5421, true); pos += 2;
-    view.setUint32(pos, e.crc, true); pos += 4;
-    view.setUint32(pos, e.data.length, true); pos += 4;
-    view.setUint32(pos, e.data.length, true); pos += 4;
-    view.setUint16(pos, e.name.length, true); pos += 2;
-    view.setUint16(pos, 0, true); pos += 2;
-    view.setUint16(pos, 0, true); pos += 2;
-    view.setUint16(pos, 0, true); pos += 2;
-    view.setUint16(pos, 0, true); pos += 2;
-    view.setUint32(pos, 0, true); pos += 4;
-    view.setUint32(pos, e.offset, true); pos += 4;
-    bytes.set(e.name, pos); pos += e.name.length;
+
+  function toBlob() {
+    const centralDirOffset = offset;
+    let centralDirSize = 0;
+    entries.forEach(e => { centralDirSize += 46 + e.name.length; });
+
+    const trailerChunks = [];
+    for (const e of entries) {
+      const centralHeader = new Uint8Array(46 + e.name.length);
+      const view = new DataView(centralHeader.buffer);
+      let pos = 0;
+      view.setUint32(pos, 0x02014b50, true); pos += 4;
+      view.setUint16(pos, 20, true); pos += 2;
+      view.setUint16(pos, 20, true); pos += 2;
+      view.setUint16(pos, 0x0800, true); pos += 2; // UTF-8 flag
+      view.setUint16(pos, 0, true); pos += 2;
+      view.setUint16(pos, 0, true); pos += 2;
+      view.setUint16(pos, 0x5421, true); pos += 2;
+      view.setUint32(pos, e.crc, true); pos += 4;
+      view.setUint32(pos, e.size, true); pos += 4;
+      view.setUint32(pos, e.size, true); pos += 4;
+      view.setUint16(pos, e.name.length, true); pos += 2;
+      view.setUint16(pos, 0, true); pos += 2;
+      view.setUint16(pos, 0, true); pos += 2;
+      view.setUint16(pos, 0, true); pos += 2;
+      view.setUint16(pos, 0, true); pos += 2;
+      view.setUint32(pos, 0, true); pos += 4;
+      view.setUint32(pos, e.offset, true); pos += 4;
+      centralHeader.set(e.name, pos);
+      trailerChunks.push(centralHeader);
+    }
+
+    const eocd = new Uint8Array(22);
+    const eocdView = new DataView(eocd.buffer);
+    let p = 0;
+    eocdView.setUint32(p, 0x06054b50, true); p += 4;
+    eocdView.setUint16(p, 0, true); p += 2;
+    eocdView.setUint16(p, 0, true); p += 2;
+    eocdView.setUint16(p, entries.length, true); p += 2;
+    eocdView.setUint16(p, entries.length, true); p += 2;
+    eocdView.setUint32(p, centralDirSize, true); p += 4;
+    eocdView.setUint32(p, centralDirOffset, true); p += 4;
+    eocdView.setUint16(p, 0, true);
+    trailerChunks.push(eocd);
+
+    // Build zip from chunks to avoid creating one giant contiguous ArrayBuffer copy.
+    return new Blob([...chunks, ...trailerChunks], { type: 'application/zip' });
   }
-  view.setUint32(pos, 0x06054b50, true); pos += 4;
-  view.setUint16(pos, 0, true); pos += 2;
-  view.setUint16(pos, 0, true); pos += 2;
-  view.setUint16(pos, entries.length, true); pos += 2;
-  view.setUint16(pos, entries.length, true); pos += 2;
-  view.setUint32(pos, centralDirSize, true); pos += 4;
-  view.setUint32(pos, centralDirOffset, true); pos += 4;
-  view.setUint16(pos, 0, true);
-  return bytes;
+
+  return { addFile, toBlob };
 }
 
 function buildExportHtml() {
@@ -1302,7 +1320,7 @@ async function startHtmlExport() {
   });
   filePaths.add('summary.json');
 
-  const zipFiles = [];
+  const zipBuilder = createZipBuilder();
   const failedFiles = [];
   let fetched = 0;
   const total = filePaths.size;
@@ -1316,7 +1334,7 @@ async function startHtmlExport() {
       const resp = await fetch(filePath, { signal: abortCtrl.signal });
       if (resp.ok) {
         const data = new Uint8Array(await resp.arrayBuffer());
-        zipFiles.push({ name: filePath, data });
+        zipBuilder.addFile(filePath, data);
       } else {
         failedFiles.push(filePath);
       }
@@ -1331,12 +1349,11 @@ async function startHtmlExport() {
   statusEl.textContent = 'Building HTML...';
   progressFill.style.width = '85%';
   const html = buildExportHtml();
-  zipFiles.push({ name: 'index.html', data: new TextEncoder().encode(html) });
+  zipBuilder.addFile('index.html', new TextEncoder().encode(html));
 
   statusEl.textContent = 'Creating ZIP...';
   progressFill.style.width = '95%';
-  const zipData = createZip(zipFiles);
-  const blob = new Blob([zipData], { type: 'application/zip' });
+  const blob = zipBuilder.toBlob();
   const url = URL.createObjectURL(blob);
 
   let statusMsg = 'Export complete! (' + (blob.size / (1024 * 1024)).toFixed(1) + ' MB)';
