@@ -266,7 +266,7 @@ export function buildProfileHtml(profileComparison, racers) {
 }
 
 export function buildFilesHtml(racers, videoFiles, options) {
-  const { fullVideoFiles, mergedVideoFile, traceFiles, altFormat, altFiles, placementOrder } = options;
+  const { fullVideoFiles, mergedVideoFile, traceFiles, raceScriptFiles, settingsFileCopied, altFormat, altFiles, placementOrder } = options;
   const links = [];
   const order = placementOrder || racers.map((_, i) => i);
 
@@ -290,6 +290,14 @@ export function buildFilesHtml(racers, videoFiles, options) {
     order.forEach(i => {
       if (traceFiles[i]) links.push(render(T['file-link'], { href: escHtml(traceFiles[i]), attrs: 'title="Open in chrome://tracing or ui.perfetto.dev"', text: `${escHtml(racers[i])} (profile)` }));
     });
+  }
+  if (raceScriptFiles && raceScriptFiles.length > 0) {
+    for (const f of raceScriptFiles) {
+      links.push(render(T['file-link'], { href: escHtml(f), attrs: 'title="Race script \u2014 rerun with: node race.js &lt;dir&gt;"', text: `${escHtml(f)} (script)` }));
+    }
+  }
+  if (settingsFileCopied) {
+    links.push(render(T['file-link'], { href: 'settings.json', attrs: '', text: 'settings.json' }));
   }
 
   if (links.length === 0) return '';

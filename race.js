@@ -78,14 +78,11 @@ export function spawnRunner(ctx) {
       const text = d.toString();
       racerNames.forEach((name, i) => {
         if (text.includes(`[${name}] Context closed`)) animation.racerFinished(i);
-        const msgPrefix = `[${name}] __raceMessage__[`;
-        const msgIdx = text.indexOf(msgPrefix);
-        if (msgIdx !== -1) {
-          const payload = text.slice(msgIdx + msgPrefix.length).split('\n')[0];
-          const match = payload.match(/^([\d.]+)\]:(.*)$/);
-          if (match) {
-            animation.addMessage(i, name, match[2], match[1]);
-          }
+        const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        const re = new RegExp(`\\[${escaped}\\] __raceMessage__\\[([\\d.]+)\\]:(.*)`, 'g');
+        let m;
+        while ((m = re.exec(text)) !== null) {
+          animation.addMessage(i, name, m[2], m[1]);
         }
       });
       if (animation.finished.every(Boolean) && animation.interval) animation.stop();
@@ -126,6 +123,28 @@ export async function runSingleRace(ctx, runDir, runNavigation = null, raceOptio
   const result = await spawnRunner(raceCtx);
 
   let results, summary, sideBySidePath = null, sideBySideName = null, clipTimes = null;
+  // Copy race scripts and settings.json to results directory for export
+  const raceScriptFiles = [];
+  let settingsFileCopied = false;
+  if (ctx.raceDir && ctx.racerFiles) {
+    for (const f of ctx.racerFiles) {
+      try {
+        fs.copyFileSync(path.join(ctx.raceDir, f), path.join(runDir, f));
+        raceScriptFiles.push(f);
+      } catch (e) {
+        console.error(`${c.dim}Warning: Could not copy race script ${f}: ${e.message}${c.reset}`);
+      }
+    }
+    const srcSettings = path.join(ctx.raceDir, 'settings.json');
+    if (fs.existsSync(srcSettings)) {
+      try {
+        fs.copyFileSync(srcSettings, path.join(runDir, 'settings.json'));
+        settingsFileCopied = true;
+      } catch (e) {
+        console.error(`${c.dim}Warning: Could not copy settings.json: ${e.message}${c.reset}`);
+      }
+    }
+  }
   const ext = FORMAT_EXTENSIONS[format] || FORMAT_EXTENSIONS.webm;
 
   if (noRecording) {
@@ -203,6 +222,7 @@ export async function runSingleRace(ctx, runDir, runNavigation = null, raceOptio
         wallClockDuration: b?.wallClockDuration || 0,
         measurements: b?.measurements || [],
         calibratedStart: b?.calibratedStart ?? null,
+        traceCalibration: b?.traceCalibration || null,
       };
     });
 
@@ -210,6 +230,8 @@ export async function runSingleRace(ctx, runDir, runNavigation = null, raceOptio
       fullVideoFiles,
       mergedVideoFile: sideBySidePath ? sideBySideName : null,
       traceFiles,
+      raceScriptFiles,
+      settingsFileCopied,
       runNavigation,
       clipTimes,
       ffmpegPathPrefix: raceOptions.ffmpegPathPrefix || './',
@@ -225,7 +247,7 @@ export async function runSingleRace(ctx, runDir, runNavigation = null, raceOptio
  * Build a race context from resolved settings and racer info.
  * This is the config object passed to spawnRunner/runSingleRace.
  */
-export function buildRaceContext({ racerNames, scripts, settings, rootDir = __dirname, raceDir = null }) {
+export function buildRaceContext({ racerNames, scripts, settings, rootDir = __dirname, raceDir = null, racerFiles = null }) {
   const executionMode = settings.parallel ? 'parallel' : 'sequential';
   const throttle = { network: settings.network, cpu: settings.cpuThrottle };
 
@@ -240,7 +262,7 @@ export function buildRaceContext({ racerNames, scripts, settings, rootDir = __di
     ffmpeg: settings.ffmpeg,
   };
 
-  return { racerNames, settings, executionMode, throttle, runnerConfig, rootDir, raceDir };
+  return { racerNames, settings, executionMode, throttle, runnerConfig, rootDir, raceDir, racerFiles };
 }
 
 // --- Local server ---
@@ -487,7 +509,7 @@ settings.runs = settings.runs ?? 1;
 
 // --- Build race context ---
 
-const ctx = buildRaceContext({ racerNames, scripts, settings, rootDir: __dirname, raceDir });
+const ctx = buildRaceContext({ racerNames, scripts, settings, rootDir: __dirname, raceDir, racerFiles });
 const resultsDir = path.join(raceDir, `results-${formatTimestamp(new Date())}`);
 const totalRuns = settings.runs;
 
@@ -530,20 +552,22 @@ async function main() {
         const medianAltFiles = ffmpeg && format !== 'webm' ? racerNames.map(name => `${medianRunDir}/${name}/${name}.race${ext}`) : null;
         const medianMergedFile = sideBySideNames[medianRunIdx] ? `${medianRunDir}/${sideBySideNames[medianRunIdx]}` : null;
 
-        // Create top-level median index.html with navigation and videos from median run
-        const medianNav = { currentRun: 'median', totalRuns, pathPrefix: '' };
-        const medianPlayerOptions = {
-          fullVideoFiles: medianFullVideoFiles,
-          mergedVideoFile: medianMergedFile,
-          runNavigation: medianNav,
-          medianRunLabel: `Run ${medianRunIdx + 1}`,
-          clipTimes: allClipTimes[medianRunIdx] || null,
-        };
-        fs.writeFileSync(
-          path.join(resultsDir, 'index.html'),
-          buildPlayerHtml(medianSummary, medianVideoFiles, ffmpeg && format !== 'webm' ? format : null, medianAltFiles, medianPlayerOptions)
-        );
-        if (!settings.noWasm) copyFFmpegFiles(resultsDir);
+      // Create top-level median index.html with navigation and videos from median run
+      const medianNav = { currentRun: 'median', totalRuns, pathPrefix: '' };
+      const medianPlayerOptions = {
+        fullVideoFiles: medianFullVideoFiles,
+        mergedVideoFile: medianMergedFile,
+        raceScriptFiles: ctx.racerFiles ? ctx.racerFiles.map(f => `${medianRunDir}/${f}`) : null,
+        settingsFileCopied: fs.existsSync(path.join(resultsDir, medianRunDir, 'settings.json')),
+        runNavigation: medianNav,
+        medianRunLabel: `Run ${medianRunIdx + 1}`,
+        clipTimes: allClipTimes[medianRunIdx] || null,
+      };
+      fs.writeFileSync(
+        path.join(resultsDir, 'index.html'),
+        buildPlayerHtml(medianSummary, medianVideoFiles, ffmpeg && format !== 'webm' ? format : null, medianAltFiles, medianPlayerOptions)
+      );
+      if (!settings.noWasm) copyFFmpegFiles(resultsDir);
       }
 
       console.error(`\n  ${c.bold}${c.cyan}── Median Results (${totalRuns} runs) ──${c.reset}`);
