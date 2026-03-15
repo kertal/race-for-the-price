@@ -97,13 +97,13 @@ export function buildPlayerHtml(summary, videoFiles, altFormat, altFiles, option
       const racer = racers[origIdx];
       return `  <div class="racer">
     <div class="racer-label" style="color: ${color}">${escHtml(racer)}</div>
-    <video id="v${displayIdx}" src="${escHtml(videoFiles[origIdx])}" preload="auto" muted data-racer-name="${escHtml(racer)}"></video>
+    <video id="v${displayIdx}" src="${escHtml(videoFiles[origIdx])}" preload="auto" muted playsinline disablepictureinpicture crossorigin="anonymous" aria-label="Race recording for ${escHtml(racer)}" data-racer-name="${escHtml(racer)}"></video>
   </div>`;
     }).join('\n');
 
     const mergedVideoElement = mergedVideoFile ? `
 <div class="merged-container" id="mergedContainer" style="display: none;">
-  <video id="mergedVideo" src="${escHtml(mergedVideoFile)}" preload="auto" muted></video>
+  <video id="mergedVideo" src="${escHtml(mergedVideoFile)}" preload="auto" muted playsinline disablepictureinpicture crossorigin="anonymous" aria-label="Side-by-side merged video"></video>
 </div>` : '';
 
     debugPanelOut = hasClipTimes ? buildDebugPanelHtml(racers, placementOrder, clipTimes) : '';

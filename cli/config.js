@@ -43,6 +43,10 @@ export function discoverRacers(raceDir) {
   }
 
   const racerNames = racerFiles.map(f => f.replace(/\.spec\.js$/, '').replace(/\.js$/, ''));
+  const dupes = racerNames.filter((n, i) => racerNames.indexOf(n) !== i);
+  if (dupes.length > 0) {
+    console.error(`Warning: Duplicate racer names detected: ${[...new Set(dupes)].join(', ')}`);
+  }
   return { racerFiles, racerNames };
 }
 
