@@ -194,6 +194,11 @@ describe('settings override', () => {
     expect(s.slowmo).toBe(3);
   });
 
+  it('CLI --pause sets pauseBetweenRuns', () => {
+    const s = applyOverrides({}, new Set(['pause']), {});
+    expect(s.pauseBetweenRuns).toBe(true);
+  });
+
   it('preserves settings when no overrides', () => {
     const orig = { parallel: true, network: 'fast-3g', cpuThrottle: 2 };
     const s = applyOverrides(orig, new Set(), {});

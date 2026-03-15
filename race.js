@@ -45,6 +45,58 @@ export function buildResultsPaths(resultsDir, cwd = process.cwd()) {
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
+/** Wait for the user to press Enter, displaying a prompt message. Resolves immediately in non-TTY environments. */
+export function waitForEnter(message) {
+  return new Promise((resolve, reject) => {
+    if (!process.stdin.isTTY || process.stdin.readableEnded) {
+      process.stderr.write(message + '(skipped — non-interactive)\n');
+      resolve();
+      return;
+    }
+
+    process.stderr.write(message);
+
+    const setRawModeSafe = (value) => {
+      try { if (typeof process.stdin.setRawMode === 'function') process.stdin.setRawMode(value); }
+      catch (_) { /* stdin may already be destroyed */ }
+    };
+
+    const cleanup = () => {
+      process.stdin.removeListener('data', onData);
+      process.stdin.removeListener('end', onEnd);
+      process.stdin.removeListener('error', onEnd);
+      setRawModeSafe(false);
+      process.stdin.pause();
+    };
+
+    const onData = chunk => {
+      const str = chunk.toString();
+      // Ctrl+C in raw mode arrives as \u0003 — restore terminal and exit
+      if (str.includes('\u0003')) {
+        cleanup();
+        process.kill(process.pid, 'SIGINT');
+        return;
+      }
+      if (str.includes('\n') || str.includes('\r')) {
+        cleanup();
+        resolve();
+      }
+    };
+
+    const onEnd = () => {
+      cleanup();
+      resolve();
+    };
+
+    process.stdin.resume();
+    process.stdin.setEncoding('utf8');
+    setRawModeSafe(true);
+    process.stdin.on('data', onData);
+    process.stdin.on('end', onEnd);
+    process.stdin.on('error', onEnd);
+  });
+}
+
 // --- Race execution (module-scope functions with explicit context) ---
 
 /** Spawn the runner process, show animation, return parsed JSON result. */
@@ -459,6 +511,7 @@ ${c.dim}  ───────────────────────�
   node race.js ${c.cyan}<dir>${c.reset} ${c.yellow}--cpu${c.reset}=${c.green}4${c.reset}              CPU throttle multiplier (1=none)
   node race.js ${c.cyan}<dir>${c.reset} ${c.yellow}--format${c.reset}=${c.green}mov${c.reset}          Output format: webm (default), mov, gif
   node race.js ${c.cyan}<dir>${c.reset} ${c.yellow}--runs${c.reset}=${c.green}3${c.reset}            Run multiple times, report median
+  node race.js ${c.cyan}<dir>${c.reset} ${c.yellow}--pause${c.reset}              Pause between runs (press Enter to continue)
   node race.js ${c.cyan}<dir>${c.reset} ${c.yellow}--slowmo${c.reset}=${c.green}2${c.reset}           Slow-motion side-by-side replay (2x, 3x, etc.)
   node race.js ${c.cyan}<dir>${c.reset} ${c.yellow}--no-overlay${c.reset}         Record videos without overlays
   node race.js ${c.cyan}<dir>${c.reset} ${c.yellow}--no-recording${c.reset}      Skip video recording, just measure
@@ -552,6 +605,10 @@ async function main() {
         summaries.push(summary);
         sideBySideNames.push(sideBySidePath ? sideBySideName : null);
         allClipTimes.push(runClipTimes);
+
+        if (settings.pauseBetweenRuns && i < totalRuns - 1) {
+          await waitForEnter(`\n  ${c.bold}${c.yellow}⏸  Paused — adjust your configuration, then press Enter to start run ${i + 2} of ${totalRuns}...${c.reset} `);
+        }
       }
 
       const medianSummary = buildMedianSummary(summaries, resultsDir);

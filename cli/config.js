@@ -57,6 +57,7 @@ export function applyOverrides(settings, boolFlags, kvFlags) {
   if (boolFlags.has('no-recording')) s.noRecording = true;
   if (boolFlags.has('ffmpeg')) s.ffmpeg = true;
   if (boolFlags.has('no-wasm')) s.noWasm = true;
+  if (boolFlags.has('pause')) s.pauseBetweenRuns = true;
   if (kvFlags.network !== undefined) {
     if (!VALID_NETWORKS.includes(kvFlags.network)) {
       console.error(`Warning: Unknown network preset "${kvFlags.network}", valid values: ${VALID_NETWORKS.join(', ')}`);
