@@ -77,14 +77,11 @@ export function spawnRunner(ctx) {
       const text = d.toString();
       racerNames.forEach((name, i) => {
         if (text.includes(`[${name}] Context closed`)) animation.racerFinished(i);
-        const msgPrefix = `[${name}] __raceMessage__[`;
-        const msgIdx = text.indexOf(msgPrefix);
-        if (msgIdx !== -1) {
-          const payload = text.slice(msgIdx + msgPrefix.length).split('\n')[0];
-          const match = payload.match(/^([\d.]+)\]:(.*)$/);
-          if (match) {
-            animation.addMessage(i, name, match[2], match[1]);
-          }
+        const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        const re = new RegExp(`\\[${escaped}\\] __raceMessage__\\[([\\d.]+)\\]:(.*)`, 'g');
+        let m;
+        while ((m = re.exec(text)) !== null) {
+          animation.addMessage(i, name, m[2], m[1]);
         }
       });
       if (animation.finished.every(Boolean) && animation.interval) animation.stop();
@@ -205,6 +202,7 @@ export async function runSingleRace(ctx, runDir, runNavigation = null, raceOptio
       wallClockDuration: b?.wallClockDuration || 0,
       measurements: b?.measurements || [],
       calibratedStart: b?.calibratedStart ?? null,
+      traceCalibration: b?.traceCalibration || null,
     };
   });
 
