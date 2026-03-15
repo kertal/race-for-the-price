@@ -71,7 +71,12 @@ describe('calibration integration', () => {
     tmpDir = path.join(__dirname, '..', 'test-results', 'calibration-' + Date.now());
     fs.mkdirSync(tmpDir, { recursive: true });
     try {
-      browser = await launchPlaywright();
+      // Some CI/sandbox environments can hang while launching Chromium.
+      // Bound setup time so the suite can skip cleanly instead of timing out.
+      browser = await Promise.race([
+        launchPlaywright(),
+        new Promise((_, reject) => setTimeout(() => reject(new Error('Playwright launch timeout')), 20_000)),
+      ]);
       page = await browser.newPage();
     } catch (e) {
       console.error('Skipping calibration test: could not launch Playwright:', e.message);
