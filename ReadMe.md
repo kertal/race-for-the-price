@@ -45,6 +45,22 @@ node race.js ./races/lebron-vs-curry
 
 The dribbles are perfectly synced. The difference? The scroll back to the top: LeBron uses a smooth ease-in-out, Curry snaps up with a cubic ease-out. Pure browser performance decides the winner.
 
+## 📊 Grafana vs Kibana
+
+The observability dashboard showdown, across time. Four contenders across two generations — Grafana 2024 and 2026 go head-to-head with Kibana 2024 and 2026 — to see who's gotten faster and who's slipped.
+
+```bash
+node race.js ./races/grafana-vs-kibana
+```
+
+## ⚛️ React vs Angular (and friends)
+
+The frontend framework cage match — four racers, one winner. React, Angular, Svelte, and htmx all load the same TodoMVC-style benchmark. RaceForThePrize supports up to five racers in a single heat.
+
+```bash
+node race.js ./races/react-vs-angular
+```
+
 ## Global Install
 
 Install once, race anywhere:
@@ -112,6 +128,7 @@ page.raceRecordingEnd();
 | `page.raceEnd(name)` | Stops the stopwatch — time is recorded |
 | `await page.raceRecordingStart()` | Manually start the video segment |
 | `page.raceRecordingEnd()` | Manually end the video segment |
+| `await page.raceWaitForVisualStability(opts?)` | Wait for rendering to settle before measuring |
 
 If you skip `raceRecordingStart`/`End`, the video automatically wraps your first `raceStart` to last `raceEnd`.
 
@@ -207,6 +224,8 @@ node race.js <dir> --format=mov           # Broadcast-ready replay format (requi
 node race.js <dir> --format=gif           # Quick highlight reel (requires --ffmpeg)
 node race.js <dir> --runs=3               # Best of 3 — median wins
 node race.js <dir> --slowmo=2            # Slow-motion replay (2x, 3x, etc.)
+node race.js <dir> --no-overlay          # Record videos without overlays
+node race.js <dir> --no-recording        # Skip video recording, just measure
 node race.js <dir> --ffmpeg              # Enable FFmpeg processing (trim, merge, convert)
 ```
 
@@ -227,7 +246,7 @@ races/my-race/results-2026-01-31_14-30-00/
   contender-a/
     contender-a.race.webm     # Onboard camera footage
     contender-a.full.webm     # Full session recording (--ffmpeg only)
-    contender-a.trace.json    # Performance trace (--profile)
+    contender-a.trace.json    # Performance trace (always generated)
     measurements.json          # Lap times
     clicks.json                # Driver inputs
   contender-b/
@@ -262,7 +281,14 @@ The terminal delivers the verdict in style:
   "parallel": false,
   "network": "none",
   "cpuThrottle": 1,
-  "headless": false
+  "headless": false,
+  "runs": 1,
+  "slowmo": 0,
+  "format": "webm",
+  "ffmpeg": false,
+  "noOverlay": false,
+  "noRecording": false,
+  "noWasm": false
 }
 ```
 
@@ -272,6 +298,13 @@ The terminal delivers the verdict in style:
 | `network` | `none`, `slow-3g`, `fast-3g`, `4g` | `none` |
 | `cpuThrottle` | `1` (none) to any multiplier | `1` |
 | `headless` | `true` / `false` | `false` |
+| `runs` | integer ≥ 1 (median of N runs) | `1` |
+| `slowmo` | `0` (off) to `20` (multiplier) | `0` |
+| `format` | `webm`, `mov`, `gif` | `webm` |
+| `ffmpeg` | `true` / `false` | `false` |
+| `noOverlay` | `true` / `false` | `false` |
+| `noRecording` | `true` / `false` | `false` |
+| `noWasm` | `true` / `false` | `false` |
 
 ## Prerequisites
 
@@ -289,16 +322,22 @@ RaceForThePrize/
 ├── race.js              # 🏁 Main entry point — the race director
 ├── runner.cjs           # Playwright automation engine
 ├── cli/
-│   ├── animation.js     # Live terminal racing animation
-│   ├── colors.js        # ANSI color palette
-│   ├── config.js        # Argument parsing & racer discovery
-│   ├── results.js       # File management & video conversion
-│   ├── summary.js       # Results formatting & markdown reports
-│   ├── sidebyside.js    # FFmpeg video composition (--ffmpeg)
-│   └── videoplayer.js   # Interactive HTML player with clip-based trimming
+│   ├── animation.js        # Live terminal racing animation
+│   ├── colors.js           # ANSI color palette
+│   ├── config.js           # Argument parsing & racer discovery
+│   ├── profile-analysis.js # CDP performance metrics collection & analysis
+│   ├── player-runtime.js   # HTML player client-side runtime (canvas calibration)
+│   ├── player-sections.js  # HTML player template sections
+│   ├── race-utils.js       # Shared race utility helpers
+│   ├── results.js          # File management & video conversion
+│   ├── summary.js          # Results formatting & markdown reports
+│   ├── sidebyside.js       # FFmpeg video composition (--ffmpeg)
+│   └── videoplayer.js      # Interactive HTML player with clip-based trimming
 ├── races/
-│   ├── lauda-vs-hunt/   # 🏆 Example: the greatest rivalry in racing
-│   └── lebron-vs-curry/ # 🏀 Example: the GOAT debate, dribble-style
+│   ├── lauda-vs-hunt/        # 🏆 Example: the greatest rivalry in racing
+│   ├── lebron-vs-curry/      # 🏀 Example: the GOAT debate, dribble-style
+│   ├── grafana-vs-kibana/    # 📊 Example: dashboard performance across years
+│   └── react-vs-angular/     # ⚛️  Example: frontend framework showdown (4 racers)
 ├── tests/               # Test suite
 └── package.json
 ```
