@@ -830,7 +830,8 @@ document.getElementById('goStart').addEventListener('click', goToStart);
 document.getElementById('goEnd').addEventListener('click', goToEnd);
 
 document.addEventListener('keydown', (e) => {
-  if (e.target.tagName === 'SELECT') return;
+  const tag = e.target.tagName;
+  if (tag === 'SELECT' || tag === 'INPUT' || tag === 'TEXTAREA' || e.target.isContentEditable) return;
   if (e.key === 'ArrowLeft') { e.preventDefault(); stepFrame(-STEP); }
   else if (e.key === 'ArrowRight') { e.preventDefault(); stepFrame(STEP); }
   else if (e.key === ' ') { e.preventDefault(); playBtn.click(); }
@@ -1172,6 +1173,7 @@ racerEls.forEach((el, i) => {
 
 function setViewMode(mode) {
   if (viewMode === mode) mode = 'grid';
+  if (mode === 'solo' && selectedVideoIdx < 0) mode = 'grid';
   viewMode = mode;
   playerContainer?.classList.toggle('solo-view', mode === 'solo');
   playerContainer?.classList.toggle('overlay-view', mode === 'overlay');
@@ -1182,6 +1184,8 @@ function setViewMode(mode) {
   }
   if (mode === 'overlay') {
     applyOverlayOpacity();
+  } else {
+    racerEls.forEach(el => { el.style.opacity = ''; });
   }
 }
 
