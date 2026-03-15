@@ -604,7 +604,6 @@ function buildSegmentNav() {
 }
 
 function buildRacerFilter() {
-  if (raceVideos.length <= 2) return;
   const filterEl = document.getElementById('racerFilter');
   if (!filterEl) return;
   const racerDivs = playerContainer ? playerContainer.querySelectorAll('.racer') : [];
@@ -1209,6 +1208,13 @@ function createZip(files) {
 function buildExportHtml() {
   const doc = document.documentElement.cloneNode(true);
 
+  // Defensive cleanup: if runtime state duplicated racer cards, keep one set.
+  const racerCards = Array.from(doc.querySelectorAll('#playerContainer .racer'));
+  const expectedRacers = Array.isArray(raceVideoPaths) ? raceVideoPaths.filter(Boolean).length : 0;
+  if (expectedRacers > 0 && racerCards.length > expectedRacers) {
+    racerCards.slice(expectedRacers).forEach((el) => el.remove());
+  }
+
   // Remove debug/calibration panel and button
   const dp = doc.querySelector('#debugPanel');
   if (dp) dp.remove();
@@ -1248,7 +1254,7 @@ function buildExportHtml() {
         };
       });
       text = text.replace(
-        /const clipTimes = .+;\n/,
+        /const clipTimes = [\s\S]+?;\n/,
         'const clipTimes = ' + JSON.stringify(baked) + ';\n'
       );
     }

@@ -133,6 +133,7 @@ export async function runSingleRace(ctx, runDir, runNavigation = null, raceOptio
 
   // Copy race scripts and settings.json to results directory for export
   const raceScriptFiles = [];
+  let settingsFileCopied = false;
   if (ctx.raceDir && ctx.racerFiles) {
     for (const f of ctx.racerFiles) {
       try {
@@ -146,6 +147,7 @@ export async function runSingleRace(ctx, runDir, runNavigation = null, raceOptio
     if (fs.existsSync(srcSettings)) {
       try {
         fs.copyFileSync(srcSettings, path.join(runDir, 'settings.json'));
+        settingsFileCopied = true;
       } catch (e) {
         console.error(`${c.dim}Warning: Could not copy settings.json: ${e.message}${c.reset}`);
       }
@@ -211,6 +213,7 @@ export async function runSingleRace(ctx, runDir, runNavigation = null, raceOptio
     mergedVideoFile: sideBySidePath ? sideBySideName : null,
     traceFiles,
     raceScriptFiles,
+    settingsFileCopied,
     runNavigation,
     clipTimes,
     ffmpegPathPrefix: raceOptions.ffmpegPathPrefix || './',

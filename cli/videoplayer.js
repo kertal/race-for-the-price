@@ -61,7 +61,7 @@ function buildPlayerScript(config) {
 // ---------------------------------------------------------------------------
 
 export function buildPlayerHtml(summary, videoFiles, altFormat, altFiles, options = {}) {
-  const { fullVideoFiles, mergedVideoFile, traceFiles, raceScriptFiles, runNavigation, medianRunLabel, clipTimes, ffmpegPathPrefix } = options;
+  const { fullVideoFiles, mergedVideoFile, traceFiles, raceScriptFiles, settingsFileCopied, runNavigation, medianRunLabel, clipTimes, ffmpegPathPrefix } = options;
   const ffmpegDir = (ffmpegPathPrefix || './') + 'ffmpeg/';
   const racers = summary.racers;
   const count = racers.length;
@@ -76,7 +76,7 @@ export function buildPlayerHtml(summary, videoFiles, altFormat, altFiles, option
   const winnerBanner = summary.overallWinner === 'tie'
     ? `<span class="trophy">&#129309;</span> It's a Tie!`
     : summary.overallWinner
-      ? `<span class="trophy">&#127942;</span> ${escHtml(summary.overallWinner.toUpperCase())} wins!`
+      ? `<span class="trophy">&#127942;</span> ${escHtml(summary.overallWinner.toUpperCase())} wins the prize!`
       : '';
 
   const hasVideos = videoFiles && videoFiles.length > 0;
@@ -159,7 +159,7 @@ export function buildPlayerHtml(summary, videoFiles, altFormat, altFiles, option
     profileSummary: buildProfileSummaryHtml(summary.profileComparison || null, racers),
     profile: buildProfileHtml(summary.profileComparison || null, racers),
     files: buildFilesHtml(racers, videoFiles, {
-      fullVideoFiles, mergedVideoFile, traceFiles, raceScriptFiles, altFormat, altFiles, placementOrder,
+      fullVideoFiles, mergedVideoFile, traceFiles, raceScriptFiles, settingsFileCopied, altFormat, altFiles, placementOrder,
     }),
     scriptTag,
   });
