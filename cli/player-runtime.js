@@ -1305,6 +1305,7 @@ async function startHtmlExport() {
 
   // Collect all file paths to include
   const filePaths = new Set();
+  const optionalFilePaths = new Set(['summary.json']);
   raceVideoPaths.forEach(p => { if (p) filePaths.add(p); });
   if (fullVideoPaths) fullVideoPaths.forEach(p => { if (p) filePaths.add(p); });
   if (mergedVideo) {
@@ -1336,11 +1337,11 @@ async function startHtmlExport() {
         const data = new Uint8Array(await resp.arrayBuffer());
         zipBuilder.addFile(filePath, data);
       } else {
-        failedFiles.push(filePath);
+        if (!optionalFilePaths.has(filePath)) failedFiles.push(filePath);
       }
     } catch (e) {
       if (e.name === 'AbortError') return;
-      failedFiles.push(filePath);
+      if (!optionalFilePaths.has(filePath)) failedFiles.push(filePath);
     }
   }
 
