@@ -534,6 +534,8 @@ async function main() {
       const medianPlayerOptions = {
         fullVideoFiles: medianFullVideoFiles,
         mergedVideoFile: medianMergedFile,
+        raceScriptFiles: ctx.racerFiles ? ctx.racerFiles.map(f => `${medianRunDir}/${f}`) : null,
+        settingsFileCopied: fs.existsSync(path.join(resultsDir, medianRunDir, 'settings.json')),
         runNavigation: medianNav,
         medianRunLabel: `Run ${medianRunIdx + 1}`,
         clipTimes: allClipTimes[medianRunIdx] || null,
