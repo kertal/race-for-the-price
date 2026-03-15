@@ -604,7 +604,6 @@ function buildSegmentNav() {
 }
 
 function buildRacerFilter() {
-  if (raceVideos.length <= 2) return;
   const filterEl = document.getElementById('racerFilter');
   if (!filterEl) return;
   const racerDivs = playerContainer ? playerContainer.querySelectorAll('.racer') : [];
@@ -1126,5 +1125,258 @@ async function startExport() {
 if (exportBtn) {
   if (raceVideos.length < 2) exportBtn.style.display = 'none';
   exportBtn.addEventListener('click', startExport);
+}
+
+// --- Export HTML: self-contained zip with videos, profiles, baked adjustments ---
+
+const _crc32Table = new Uint32Array(256);
+for (let i = 0; i < 256; i++) {
+  let c = i;
+  for (let j = 0; j < 8; j++) c = c & 1 ? 0xEDB88320 ^ (c >>> 1) : c >>> 1;
+  _crc32Table[i] = c;
+}
+
+function crc32(data) {
+  let crc = 0xFFFFFFFF;
+  for (let i = 0; i < data.length; i++) crc = _crc32Table[(crc ^ data[i]) & 0xFF] ^ (crc >>> 8);
+  return (crc ^ 0xFFFFFFFF) >>> 0;
+}
+
+function createZipBuilder() {
+  const chunks = [];
+  const entries = [];
+  const encoder = new TextEncoder();
+  let offset = 0;
+
+  function addFile(name, data) {
+    const nameBytes = encoder.encode(name);
+    const crc = crc32(data);
+    const localHeader = new Uint8Array(30 + nameBytes.length);
+    const view = new DataView(localHeader.buffer);
+    let pos = 0;
+    view.setUint32(pos, 0x04034b50, true); pos += 4;
+    view.setUint16(pos, 20, true); pos += 2;
+    view.setUint16(pos, 0x0800, true); pos += 2; // UTF-8 flag
+    view.setUint16(pos, 0, true); pos += 2;
+    view.setUint16(pos, 0, true); pos += 2;
+    view.setUint16(pos, 0x5421, true); pos += 2;
+    view.setUint32(pos, crc, true); pos += 4;
+    view.setUint32(pos, data.length, true); pos += 4;
+    view.setUint32(pos, data.length, true); pos += 4;
+    view.setUint16(pos, nameBytes.length, true); pos += 2;
+    view.setUint16(pos, 0, true); pos += 2;
+    localHeader.set(nameBytes, pos);
+
+    chunks.push(localHeader, data);
+    entries.push({ name: nameBytes, size: data.length, crc, offset });
+    offset += localHeader.length + data.length;
+  }
+
+  function toBlob() {
+    const centralDirOffset = offset;
+    let centralDirSize = 0;
+    entries.forEach(e => { centralDirSize += 46 + e.name.length; });
+
+    const trailerChunks = [];
+    for (const e of entries) {
+      const centralHeader = new Uint8Array(46 + e.name.length);
+      const view = new DataView(centralHeader.buffer);
+      let pos = 0;
+      view.setUint32(pos, 0x02014b50, true); pos += 4;
+      view.setUint16(pos, 20, true); pos += 2;
+      view.setUint16(pos, 20, true); pos += 2;
+      view.setUint16(pos, 0x0800, true); pos += 2; // UTF-8 flag
+      view.setUint16(pos, 0, true); pos += 2;
+      view.setUint16(pos, 0, true); pos += 2;
+      view.setUint16(pos, 0x5421, true); pos += 2;
+      view.setUint32(pos, e.crc, true); pos += 4;
+      view.setUint32(pos, e.size, true); pos += 4;
+      view.setUint32(pos, e.size, true); pos += 4;
+      view.setUint16(pos, e.name.length, true); pos += 2;
+      view.setUint16(pos, 0, true); pos += 2;
+      view.setUint16(pos, 0, true); pos += 2;
+      view.setUint16(pos, 0, true); pos += 2;
+      view.setUint16(pos, 0, true); pos += 2;
+      view.setUint32(pos, 0, true); pos += 4;
+      view.setUint32(pos, e.offset, true); pos += 4;
+      centralHeader.set(e.name, pos);
+      trailerChunks.push(centralHeader);
+    }
+
+    const eocd = new Uint8Array(22);
+    const eocdView = new DataView(eocd.buffer);
+    let p = 0;
+    eocdView.setUint32(p, 0x06054b50, true); p += 4;
+    eocdView.setUint16(p, 0, true); p += 2;
+    eocdView.setUint16(p, 0, true); p += 2;
+    eocdView.setUint16(p, entries.length, true); p += 2;
+    eocdView.setUint16(p, entries.length, true); p += 2;
+    eocdView.setUint32(p, centralDirSize, true); p += 4;
+    eocdView.setUint32(p, centralDirOffset, true); p += 4;
+    eocdView.setUint16(p, 0, true);
+    trailerChunks.push(eocd);
+
+    // Build zip from chunks to avoid creating one giant contiguous ArrayBuffer copy.
+    return new Blob([...chunks, ...trailerChunks], { type: 'application/zip' });
+  }
+
+  return { addFile, toBlob };
+}
+
+function buildExportHtml() {
+  const doc = document.documentElement.cloneNode(true);
+
+  // Defensive cleanup: if runtime state duplicated racer cards, keep one set.
+  const racerCards = Array.from(doc.querySelectorAll('#playerContainer .racer'));
+  const expectedRacers = Array.isArray(raceVideoPaths) ? raceVideoPaths.filter(Boolean).length : 0;
+  if (expectedRacers > 0 && racerCards.length > expectedRacers) {
+    racerCards.slice(expectedRacers).forEach((el) => el.remove());
+  }
+
+  // Remove debug/calibration panel and button
+  const dp = doc.querySelector('#debugPanel');
+  if (dp) dp.remove();
+  const calBtn = doc.querySelector('#modeDebug');
+  if (calBtn) calBtn.remove();
+
+  // Remove export buttons (HTML export already done, video export needs ffmpeg assets not in ZIP)
+  const htmlBtn = doc.querySelector('#exportHtmlBtn');
+  if (htmlBtn) htmlBtn.remove();
+  const expBtn = doc.querySelector('#exportBtn');
+  if (expBtn) expBtn.remove();
+
+  // Remove any active export overlays
+  doc.querySelectorAll('.export-overlay').forEach(el => el.remove());
+
+  // Bake adjusted clip times into the script
+  const scripts = doc.querySelectorAll('script');
+  for (const script of scripts) {
+    let text = script.textContent;
+    if (!text.includes('const clipTimes =')) continue;
+    const adj = getAdjustedClipTimes();
+    if (adj && clipTimes) {
+      const baked = adj.map((ct, i) => {
+        if (!ct) return null;
+        const orig = clipTimes[i] || {};
+        return {
+          start: ct.start,
+          end: ct.end,
+          _converted: true,
+          calibratedStart: ct.start,
+          calibratedEnd: ct.end,
+          _wcStart: orig._wcStart != null ? orig._wcStart : ct.start,
+          _wcEnd: orig._wcEnd != null ? orig._wcEnd : ct.end,
+          wallClockDuration: orig.wallClockDuration || 0,
+          recordingOffset: orig.recordingOffset || 0,
+          measurements: orig.measurements || [],
+        };
+      });
+      text = text.replace(
+        /const clipTimes = [\s\S]+?;\n/,
+        'const clipTimes = ' + JSON.stringify(baked) + ';\n'
+      );
+    }
+    script.textContent = text;
+  }
+
+  return '<!DOCTYPE html>\n' + doc.outerHTML;
+}
+
+async function startHtmlExport() {
+  if (playing) { videos.forEach(v => v?.pause()); playing = false; playBtn.textContent = '\u25B6'; }
+
+  const tmpl = document.getElementById('tmpl-export-overlay');
+  const overlay = tmpl.content.cloneNode(true).firstElementChild;
+  const canvas = overlay.querySelector('.export-canvas');
+  canvas.style.display = 'none';
+  const titleEl = overlay.querySelector('h3');
+  titleEl.textContent = 'Exporting HTML';
+  document.body.appendChild(overlay);
+
+  const progressFill = overlay.querySelector('.export-progress-fill');
+  const statusEl = overlay.querySelector('.export-status');
+  const actionsEl = overlay.querySelector('.export-actions');
+
+  const abortCtrl = new AbortController();
+  overlay.querySelector('.export-cancel').addEventListener('click', () => {
+    abortCtrl.abort();
+    overlay.remove();
+  });
+
+  // Collect all file paths to include
+  const filePaths = new Set();
+  const optionalFilePaths = new Set(['summary.json']);
+  raceVideoPaths.forEach(p => { if (p) filePaths.add(p); });
+  if (fullVideoPaths) fullVideoPaths.forEach(p => { if (p) filePaths.add(p); });
+  if (mergedVideo) {
+    const mergedPath = mergedVideo.getAttribute('src');
+    if (mergedPath) filePaths.add(mergedPath);
+  }
+  // Scan file-links section for trace files and other assets
+  document.querySelectorAll('.file-links a').forEach(a => {
+    const href = a.getAttribute('href');
+    if (href && !href.startsWith('http') && !href.startsWith('//') && !href.startsWith('data:')) {
+      filePaths.add(href);
+    }
+  });
+  filePaths.add('summary.json');
+
+  const zipBuilder = createZipBuilder();
+  const failedFiles = [];
+  let fetched = 0;
+  const total = filePaths.size;
+
+  for (const filePath of filePaths) {
+    if (abortCtrl.signal.aborted) return;
+    fetched++;
+    statusEl.textContent = 'Fetching ' + filePath + ' (' + fetched + '/' + total + ')';
+    progressFill.style.width = (fetched / total * 80).toFixed(0) + '%';
+    try {
+      const resp = await fetch(filePath, { signal: abortCtrl.signal });
+      if (resp.ok) {
+        const data = new Uint8Array(await resp.arrayBuffer());
+        zipBuilder.addFile(filePath, data);
+      } else {
+        if (!optionalFilePaths.has(filePath)) failedFiles.push(filePath);
+      }
+    } catch (e) {
+      if (e.name === 'AbortError') return;
+      if (!optionalFilePaths.has(filePath)) failedFiles.push(filePath);
+    }
+  }
+
+  if (abortCtrl.signal.aborted) return;
+
+  statusEl.textContent = 'Building HTML...';
+  progressFill.style.width = '85%';
+  const html = buildExportHtml();
+  zipBuilder.addFile('index.html', new TextEncoder().encode(html));
+
+  statusEl.textContent = 'Creating ZIP...';
+  progressFill.style.width = '95%';
+  const blob = zipBuilder.toBlob();
+  const url = URL.createObjectURL(blob);
+
+  let statusMsg = 'Export complete! (' + (blob.size / (1024 * 1024)).toFixed(1) + ' MB)';
+  if (failedFiles.length > 0) {
+    statusMsg += '\nSkipped ' + failedFiles.length + ' file(s): ' + failedFiles.join(', ');
+  }
+  statusEl.textContent = statusMsg;
+  progressFill.style.width = '100%';
+
+  const dlLink = document.createElement('a');
+  dlLink.href = url;
+  const zipName = document.title.replace(/[^a-zA-Z0-9-]/g, '_').replace(/_+/g, '_').toLowerCase();
+  dlLink.download = (zipName || 'race-export') + '.zip';
+  dlLink.textContent = 'Download ZIP';
+  const closeBtn = document.createElement('button');
+  closeBtn.textContent = 'Close';
+  closeBtn.addEventListener('click', () => { URL.revokeObjectURL(url); overlay.remove(); });
+  actionsEl.replaceChildren(dlLink, closeBtn);
+}
+
+const exportHtmlBtn = document.getElementById('exportHtmlBtn');
+if (exportHtmlBtn) {
+  exportHtmlBtn.addEventListener('click', startHtmlExport);
 }
 

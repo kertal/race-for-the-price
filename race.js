@@ -130,6 +130,30 @@ export async function runSingleRace(ctx, runDir, runNavigation = null, raceOptio
 
   const summary = buildSummary(racerNames, results, settings, runDir);
   fs.writeFileSync(path.join(runDir, 'summary.json'), JSON.stringify(summary, null, 2));
+
+  // Copy race scripts and settings.json to results directory for export
+  const raceScriptFiles = [];
+  let settingsFileCopied = false;
+  if (ctx.raceDir && ctx.racerFiles) {
+    for (const f of ctx.racerFiles) {
+      try {
+        fs.copyFileSync(path.join(ctx.raceDir, f), path.join(runDir, f));
+        raceScriptFiles.push(f);
+      } catch (e) {
+        console.error(`${c.dim}Warning: Could not copy race script ${f}: ${e.message}${c.reset}`);
+      }
+    }
+    const srcSettings = path.join(ctx.raceDir, 'settings.json');
+    if (fs.existsSync(srcSettings)) {
+      try {
+        fs.copyFileSync(srcSettings, path.join(runDir, 'settings.json'));
+        settingsFileCopied = true;
+      } catch (e) {
+        console.error(`${c.dim}Warning: Could not copy settings.json: ${e.message}${c.reset}`);
+      }
+    }
+  }
+
   progress.done('Recordings processed');
 
   const ext = FORMAT_EXTENSIONS[format] || FORMAT_EXTENSIONS.webm;
@@ -188,6 +212,8 @@ export async function runSingleRace(ctx, runDir, runNavigation = null, raceOptio
     fullVideoFiles,
     mergedVideoFile: sideBySidePath ? sideBySideName : null,
     traceFiles,
+    raceScriptFiles,
+    settingsFileCopied,
     runNavigation,
     clipTimes,
     ffmpegPathPrefix: raceOptions.ffmpegPathPrefix || './',
@@ -202,7 +228,7 @@ export async function runSingleRace(ctx, runDir, runNavigation = null, raceOptio
  * Build a race context from resolved settings and racer info.
  * This is the config object passed to spawnRunner/runSingleRace.
  */
-export function buildRaceContext({ racerNames, scripts, settings, rootDir = __dirname, raceDir = null }) {
+export function buildRaceContext({ racerNames, scripts, settings, rootDir = __dirname, raceDir = null, racerFiles = null }) {
   const executionMode = settings.parallel ? 'parallel' : 'sequential';
   const throttle = { network: settings.network, cpu: settings.cpuThrottle };
 
@@ -216,7 +242,7 @@ export function buildRaceContext({ racerNames, scripts, settings, rootDir = __di
     ffmpeg: settings.ffmpeg,
   };
 
-  return { racerNames, settings, executionMode, throttle, runnerConfig, rootDir, raceDir };
+  return { racerNames, settings, executionMode, throttle, runnerConfig, rootDir, raceDir, racerFiles };
 }
 
 // --- Local server ---
@@ -461,7 +487,7 @@ settings.runs = settings.runs ?? 1;
 
 // --- Build race context ---
 
-const ctx = buildRaceContext({ racerNames, scripts, settings, rootDir: __dirname, raceDir });
+const ctx = buildRaceContext({ racerNames, scripts, settings, rootDir: __dirname, raceDir, racerFiles });
 const resultsDir = path.join(raceDir, `results-${formatTimestamp(new Date())}`);
 const totalRuns = settings.runs;
 
@@ -508,6 +534,8 @@ async function main() {
       const medianPlayerOptions = {
         fullVideoFiles: medianFullVideoFiles,
         mergedVideoFile: medianMergedFile,
+        raceScriptFiles: ctx.racerFiles ? ctx.racerFiles.map(f => `${medianRunDir}/${f}`) : null,
+        settingsFileCopied: fs.existsSync(path.join(resultsDir, medianRunDir, 'settings.json')),
         runNavigation: medianNav,
         medianRunLabel: `Run ${medianRunIdx + 1}`,
         clipTimes: allClipTimes[medianRunIdx] || null,

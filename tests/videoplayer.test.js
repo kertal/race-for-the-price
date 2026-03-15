@@ -64,7 +64,7 @@ describe('buildPlayerHtml', () => {
   });
 
   it('shows winner banner', () => {
-    expect(defaultHtml).toContain('LAUDA wins!');
+    expect(defaultHtml).toContain('LAUDA wins the prize!');
   });
 
   it('shows tie banner when tied', () => {
