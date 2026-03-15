@@ -2,7 +2,7 @@
 
 **Ladies and gentlemen, welcome to race day!**
 
-RaceForThePrize is a command-line showdown that pits two browsers against each other in a head-to-head performance battle. Write your [Playwright](https://playwright.dev/) scripts, fire the starting gun, and watch them tear down the track side-by-side — complete with live terminal animation, video recordings, and a full race report declaring the champion.
+RaceForThePrize is a command-line showdown that pits browsers against each other in head-to-head performance battles. Pit 2 to 5 racers against each other — write your [Playwright](https://playwright.dev/) scripts, fire the starting gun, and watch them tear down the track side-by-side — complete with live terminal animation, video recordings, and a full race report declaring the champion.
 
 No judges, no bias — just cold, hard milliseconds on the clock.
 
@@ -45,14 +45,6 @@ node race.js ./races/lebron-vs-curry
 
 The dribbles are perfectly synced. The difference? The scroll back to the top: LeBron uses a smooth ease-in-out, Curry snaps up with a cubic ease-out. Pure browser performance decides the winner.
 
-## 📊 Grafana vs Kibana
-
-The observability dashboard showdown, across time. Four contenders across two generations — Grafana 2024 and 2026 go head-to-head with Kibana 2024 and 2026 — to see who's gotten faster and who's slipped.
-
-```bash
-node race.js ./races/grafana-vs-kibana
-```
-
 ## ⚛️ React vs Angular (and friends)
 
 The frontend framework cage match — four racers, one winner. React, Angular, Svelte, and htmx all load the same TodoMVC-style benchmark. RaceForThePrize supports up to five racers in a single heat.
@@ -85,12 +77,13 @@ npx race-for-the-prize my-race
 
 ## Building Your Own Grand Prix
 
-Every race needs two contenders. Create a folder with two `.spec.js` scripts:
+Every race needs at least two contenders (up to five). Create a folder with `.spec.js` scripts:
 
 ```
 races/my-race/
   contender-a.spec.js   # Racer 1 (filename = racer name)
   contender-b.spec.js   # Racer 2
+  contender-c.spec.js   # Racer 3 (optional — up to 5 racers)
   settings.json          # Optional: race conditions
 ```
 
@@ -128,6 +121,7 @@ page.raceRecordingEnd();
 | `page.raceEnd(name)` | Stops the stopwatch — time is recorded |
 | `await page.raceRecordingStart()` | Manually start the video segment |
 | `page.raceRecordingEnd()` | Manually end the video segment |
+| `page.raceMessage(text)` | Send a status message to the CLI terminal |
 | `await page.raceWaitForVisualStability(opts?)` | Wait for rendering to settle before measuring |
 
 If you skip `raceRecordingStart`/`End`, the video automatically wraps your first `raceStart` to last `raceEnd`.
@@ -227,15 +221,24 @@ node race.js <dir> --slowmo=2            # Slow-motion replay (2x, 3x, etc.)
 node race.js <dir> --no-overlay          # Record videos without overlays
 node race.js <dir> --no-recording        # Skip video recording, just measure
 node race.js <dir> --ffmpeg              # Enable FFmpeg processing (trim, merge, convert)
+node race.js <dir> --serve=false         # Don't open results in browser after race
 ```
 
 CLI flags always override `settings.json`. The stewards have spoken.
+
+### Network Throttling Presets
+
+| Preset | Download | Upload | Latency |
+|---|---|---|---|
+| `slow-3g` | 500 Kbps | 500 Kbps | 400 ms |
+| `fast-3g` | 1500 Kbps | 750 Kbps | 150 ms |
+| `4g` | 4000 Kbps | 3000 Kbps | 50 ms |
 
 ### Serial vs Parallel: Accuracy vs Spectacle
 
 By default, races run in **serial** (sequential) mode — one browser at a time. This gives you the most accurate and reliable timing results because each racer gets the full, undivided attention of your machine's CPU and network stack. If you care about the numbers, stick with serial.
 
-**Parallel mode** (`--parallel`) launches both browsers simultaneously and is purely for the show. It's demo day mode — the wizard-of-many-windows spectacle where two browsers tear down the track side by side in real time. It looks fantastic in presentations and screen recordings, but since both browsers compete for the same system resources, the timings are less reliable. Use it when you want to impress an audience, not when you need to trust the stopwatch.
+**Parallel mode** (`--parallel`) launches all browsers simultaneously and is purely for the show. It's demo day mode — the wizard-of-many-windows spectacle where browsers tear down the track side by side in real time. It looks fantastic in presentations and screen recordings, but since all browsers compete for the same system resources, the timings are less reliable. Use it when you want to impress an audience, not when you need to trust the stopwatch.
 
 ## Race Results
 
@@ -319,8 +322,11 @@ See the **[Installation Guide](INSTALLATION.md)** for detailed setup instruction
 
 ```
 RaceForThePrize/
-├── race.js              # 🏁 Main entry point — the race director
-├── runner.cjs           # Playwright automation engine
+├── race.js                 # 🏁 Main entry point — the race director
+├── runner.cjs              # Playwright automation engine
+├── sync-barrier.cjs        # Parallel mode checkpoint synchronization
+├── visual-stability.cjs    # Wait-for-visual-stability detection logic
+├── trace-calibration.cjs   # Derive timing from Chrome performance traces
 ├── cli/
 │   ├── animation.js        # Live terminal racing animation
 │   ├── colors.js           # ANSI color palette
@@ -336,10 +342,18 @@ RaceForThePrize/
 ├── races/
 │   ├── lauda-vs-hunt/        # 🏆 Example: the greatest rivalry in racing
 │   ├── lebron-vs-curry/      # 🏀 Example: the GOAT debate, dribble-style
-│   ├── grafana-vs-kibana/    # 📊 Example: dashboard performance across years
 │   └── react-vs-angular/     # ⚛️  Example: frontend framework showdown (4 racers)
-├── tests/               # Test suite
+├── tests/                  # Unit tests (vitest)
+├── integration/            # Integration tests (vitest)
 └── package.json
+```
+
+## Running Tests
+
+```bash
+npm test                                          # Unit tests (vitest)
+npm run test:integration                          # Integration tests (calibration, trimming)
+npx vitest run tests/summary.test.js              # Run a single test file
 ```
 
 ## Standing on the Shoulders of Giants
