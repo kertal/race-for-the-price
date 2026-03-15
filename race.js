@@ -45,23 +45,51 @@ export function buildResultsPaths(resultsDir, cwd = process.cwd()) {
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-/** Wait for the user to press Enter, displaying a prompt message. */
+/** Wait for the user to press Enter, displaying a prompt message. Resolves immediately in non-TTY environments. */
 export function waitForEnter(message) {
-  return new Promise(resolve => {
+  return new Promise((resolve, reject) => {
+    if (!process.stdin.isTTY || process.stdin.readableEnded) {
+      process.stderr.write(message + '(skipped — non-interactive)\n');
+      resolve();
+      return;
+    }
+
     process.stderr.write(message);
+    const useRawMode = typeof process.stdin.setRawMode === 'function';
+
+    const cleanup = () => {
+      process.stdin.removeListener('data', onData);
+      process.stdin.removeListener('end', onEnd);
+      process.stdin.removeListener('error', onEnd);
+      if (useRawMode) process.stdin.setRawMode(false);
+      process.stdin.pause();
+    };
+
     const onData = chunk => {
       const str = chunk.toString();
+      // Ctrl+C in raw mode arrives as \u0003 — restore terminal and exit
+      if (str.includes('\u0003')) {
+        cleanup();
+        process.kill(process.pid, 'SIGINT');
+        return;
+      }
       if (str.includes('\n') || str.includes('\r')) {
-        process.stdin.removeListener('data', onData);
-        process.stdin.setRawMode && process.stdin.setRawMode(false);
-        process.stdin.pause();
+        cleanup();
         resolve();
       }
     };
+
+    const onEnd = () => {
+      cleanup();
+      resolve();
+    };
+
     process.stdin.resume();
     process.stdin.setEncoding('utf8');
-    try { process.stdin.setRawMode(true); } catch (_) { /* not a TTY */ }
+    if (useRawMode) process.stdin.setRawMode(true);
     process.stdin.on('data', onData);
+    process.stdin.on('end', onEnd);
+    process.stdin.on('error', onEnd);
   });
 }
 

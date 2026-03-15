@@ -1,5 +1,6 @@
-import { describe, it, expect } from 'vitest';
-import { formatTimestamp, buildResultsPaths } from '../race.js';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { formatTimestamp, buildResultsPaths, waitForEnter } from '../race.js';
+import { EventEmitter } from 'events';
 
 describe('formatTimestamp', () => {
   it('formats date as YYYY-MM-DD_HH-MM-SS', () => {
@@ -34,5 +35,39 @@ describe('buildResultsPaths', () => {
     const { relResults, relHtml } = buildResultsPaths('/project/results', '/project/results');
     expect(relResults).toBe('');
     expect(relHtml).toBe('index.html');
+  });
+});
+
+describe('waitForEnter', () => {
+  let origStdin;
+  let mockStdin;
+
+  beforeEach(() => {
+    origStdin = {
+      isTTY: process.stdin.isTTY,
+      readableEnded: process.stdin.readableEnded,
+    };
+  });
+
+  afterEach(() => {
+    Object.defineProperty(process.stdin, 'isTTY', { value: origStdin.isTTY, writable: true, configurable: true });
+    Object.defineProperty(process.stdin, 'readableEnded', { value: origStdin.readableEnded, writable: true, configurable: true });
+  });
+
+  it('resolves immediately in non-TTY environments', async () => {
+    Object.defineProperty(process.stdin, 'isTTY', { value: false, writable: true, configurable: true });
+    const stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => {});
+    await waitForEnter('test prompt ');
+    expect(stderrSpy).toHaveBeenCalledWith('test prompt (skipped — non-interactive)\n');
+    stderrSpy.mockRestore();
+  });
+
+  it('resolves immediately when stdin has already ended', async () => {
+    Object.defineProperty(process.stdin, 'isTTY', { value: true, writable: true, configurable: true });
+    Object.defineProperty(process.stdin, 'readableEnded', { value: true, writable: true, configurable: true });
+    const stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => {});
+    await waitForEnter('test prompt ');
+    expect(stderrSpy).toHaveBeenCalledWith('test prompt (skipped — non-interactive)\n');
+    stderrSpy.mockRestore();
   });
 });
