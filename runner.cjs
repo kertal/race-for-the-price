@@ -549,7 +549,7 @@ async function runMarkerMode(page, context, config, barriers, isParallel, shared
   };
 
   const showFinishTime = (duration) => {
-    if (noOverlay) return;
+    if (noOverlay || noRecording) return;
     overlayState = { text: '🏁 ' + duration.toFixed(1) + 's', bg: 'rgba(22,163,74,0.85)' };
     injectOverlay(overlayState.text, overlayState.bg).catch(() => {});
   };
@@ -569,7 +569,7 @@ async function runMarkerMode(page, context, config, barriers, isParallel, shared
     const lastMeasurement = measurements[measurements.length - 1];
     const endTime = lastMeasurement ? lastMeasurement.endTime : (Date.now() - recordingStartTime) / 1000;
     sharedState.finishOrder.push({ id, endTime });
-    if (noOverlay) return;
+    if (noOverlay || noRecording) return;
 
     if (isParallel) {
       // Parallel mode: show placement medals based on actual end times

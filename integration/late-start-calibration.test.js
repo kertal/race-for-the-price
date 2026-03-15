@@ -60,6 +60,7 @@ const describeWithFfprobe = hasFfprobe() ? describe : describe.skip;
 
 describeWithFfprobe('late-start calibration integration', () => {
   let resultsDir;
+  let setupError = null;
 
   beforeAll(() => {
     const projectRoot = path.resolve(__dirname, '..');
@@ -71,7 +72,11 @@ describeWithFfprobe('late-start calibration integration', () => {
     });
 
     if (proc.status === null) {
-      console.error('Skipping late-start calibration test: race execution timed out in this environment.');
+      setupError = new Error('Late-start calibration setup timed out before race completed.');
+      return;
+    }
+    if (proc.status !== 0) {
+      setupError = new Error(`Late-start calibration setup failed:\n${proc.stderr?.slice(-1000) || '(no stderr output)'}`);
       return;
     }
     expect(proc.status, proc.stderr?.slice(-1000)).toBe(0);
@@ -83,8 +88,8 @@ describeWithFfprobe('late-start calibration integration', () => {
     expect(fs.existsSync(resultsDir)).toBe(true);
   });
 
-  it('green cue is captured in every video despite late recording start', () => {
-    if (!resultsDir) return;
+  it('green cue is captured in every video despite late recording start', ({ skip }) => {
+    if (setupError) skip(setupError.message);
 
     for (const name of RACERS) {
       const video = path.join(resultsDir, name, `${name}.race.webm`);
@@ -95,8 +100,8 @@ describeWithFfprobe('late-start calibration integration', () => {
     }
   });
 
-  it('green cue appears well into the video (after the simulated page-load delay)', () => {
-    if (!resultsDir) return;
+  it('green cue appears well into the video (after the simulated page-load delay)', ({ skip }) => {
+    if (setupError) skip(setupError.message);
 
     // alpha: 1500ms delay → cue should be at least 1.0s into the video
     // bravo: 2000ms delay → cue should be at least 1.5s into the video
@@ -111,8 +116,8 @@ describeWithFfprobe('late-start calibration integration', () => {
     }
   });
 
-  it('calibratedStart matches first green cue frame within 3 frames (~0.12s)', () => {
-    if (!resultsDir) return;
+  it('calibratedStart matches first green cue frame within 3 frames (~0.12s)', ({ skip }) => {
+    if (setupError) skip(setupError.message);
 
     const html = fs.readFileSync(path.join(resultsDir, 'index.html'), 'utf-8');
     const ctMatch = html.match(/const clipTimes = (\[.*?\]);/);
@@ -136,8 +141,8 @@ describeWithFfprobe('late-start calibration integration', () => {
     }
   });
 
-  it('calibratedStart is not from scale formula when cue is detectable', () => {
-    if (!resultsDir) return;
+  it('calibratedStart is not from scale formula when cue is detectable', ({ skip }) => {
+    if (setupError) skip(setupError.message);
 
     const html = fs.readFileSync(path.join(resultsDir, 'index.html'), 'utf-8');
     const ctMatch = html.match(/const clipTimes = (\[.*?\]);/);

@@ -151,8 +151,24 @@ export async function runSingleRace(ctx, runDir, runNavigation = null, raceOptio
     // No-recording mode: just save measurements, skip all video processing
     results = racerNames.map((name, i) => {
       const b = result.browsers?.[i] || {};
+      let tracePath = null;
+      if (b.tracePath) {
+        const sourceTrace = path.join(recordingsDir, b.tracePath);
+        const targetTraceName = `${name}.trace.json`;
+        const targetTrace = path.join(racerRunDirs[i], targetTraceName);
+        try {
+          if (fs.existsSync(sourceTrace)) {
+            fs.copyFileSync(sourceTrace, targetTrace);
+            tracePath = path.join(name, targetTraceName);
+          } else {
+            console.error(`${c.dim}Warning: Trace file missing for ${name}: ${sourceTrace}${c.reset}`);
+          }
+        } catch (e) {
+          console.error(`${c.dim}Warning: Could not copy trace for ${name}: ${e.message}${c.reset}`);
+        }
+      }
       const data = {
-        videoPath: null, fullVideoPath: null, tracePath: null,
+        videoPath: null, fullVideoPath: null, tracePath,
         clickEvents: b.clickEvents || [], measurements: b.measurements || [],
         profileMetrics: b.profileMetrics || null, error: b.error || null,
       };
